@@ -183,11 +183,18 @@ Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos 
 | `rufino-ingest-calendar` | 07:00 diario | `~/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb` (TCC) | Facts por evento del día anterior, con personas invitadas como tags `persona/<x>`. |
 | `rufino-ingest-screentime` | Domingo 04:00 | `~/Library/Application Support/Knowledge/knowledgeC.db` (TCC) | Summary semanal top-10 apps + facts individuales de top-5 con minutos de uso. |
 | `rufino-ingest-chrome` | Domingo 03:30 | `~/Library/Application Support/Google/Chrome/Default/History` (copia a tmp) | Top dominios de la semana + facts por queries repetidas (≥3 veces) + clusters de research. Privacy filter ampliado. |
+| `rufino-ingest-spotify` | Domingo 04:30 | Spotify Web API (`/me/player/recently-played`) | Summary semanal + top artists + tracks recurrentes (≥5 plays). |
+| `rufino-ingest-gdrive` | Día 1 mensual 05:00 | Google Drive API v3 (changes delta) | Importa docs/PDFs nuevos de "Mi unidad" a `rufino/` raw para que el pipeline normal los procese. Emite summary fact mensual. |
+| `rufino-ingest-youtube` | Día 5 mensual 05:30 | Google Takeout export bimestral (consume el ZIP desde Drive) | Summary bimestral + top channels + research clusters de watch history. |
 
-> **Calendar y Screen Time requieren TCC Full Disk Access** para `/bin/bash` (System Settings → Privacy & Security → Full Disk Access). El primer run del LaunchAgent va a fallar con instrucciones claras en el log si el grant falta. Ver `docs/schema-fact-externo.md` y `docs/screentime-notes.md`.
+> **Calendar y Screen Time requieren TCC Full Disk Access** para `/bin/bash` (System Settings → Privacy & Security → Full Disk Access). El primer run del LaunchAgent va a fallar con instrucciones claras en el log si el grant falta.
+>
+> **Spotify, GDrive, YouTube requieren setup OAuth one-time** antes del primer real run:
+> - Spotify: `bash ~/.claude/scripts/setup-spotify-auth.sh` después de registrar `http://localhost:8765/callback` en el dashboard de la app. Ver `docs/spotify-notes.md`.
+> - GDrive: crear proyecto en GCP Console + OAuth client desktop + `bash ~/.claude/scripts/setup-gdrive-auth.sh`. Ver `docs/gdrive-notes.md`.
+> - YouTube: configurar export bimestral en `takeout.google.com` (reusa el OAuth de GDrive). Ver `docs/youtube-notes.md` (si existe).
 
 Pendientes (en fases sucesivas del roadmap de expansión, ver `proyectos/rufino/rufino-core/decisionRufinoExpansionPlanFases.md` en el vault de Val):
-- Fase 2: Spotify, Google Drive, YouTube watch history (OAuth).
 - Fase 3: Apple Health, WhatsApp (pesados).
 - Fase 4: Embeddings vault-wide, cross-source person resolver, MCP `ask-rufino`.
 - Fase 5: Weekly digest + email, bio mensual auto-update, año en revisión.

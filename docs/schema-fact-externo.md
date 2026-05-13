@@ -107,9 +107,9 @@ No commitear al vault git si los datos son sensibles (configurar `.gitignore`).
 | calendar | sí | daily 07:00 | 2026-05-13 (dry-run) |
 | screentime | sí | sunday 04:00 | 2026-05-13 (dry-run) |
 | chrome | sí | sunday 03:30 | 2026-05-13 (dry-run) |
-| spotify | pendiente Fase 2 | — | — |
-| gdrive | pendiente Fase 2 | — | — |
-| youtube | pendiente Fase 2 | — | — |
+| spotify | sí | sunday 04:30 | requiere setup OAuth |
+| gdrive | sí | day 1 monthly 05:00 | requiere setup OAuth |
+| youtube | sí | day 5 monthly 05:30 | requiere setup Takeout (depende GDrive OAuth) |
 | applehealth | pendiente Fase 3 | — | — |
 | whatsapp | pendiente Fase 3 | — | — |
 
