@@ -5,3 +5,4 @@
 logs/
 .processing.lock
 .light-cron.lock
+.claude/
