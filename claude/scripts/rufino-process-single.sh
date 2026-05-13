@@ -40,7 +40,8 @@ echo "=== $(date) | processing: $ABS_TARGET ===" >> "$LOGFILE"
 
 # Substitute the target path into the prompt
 TARGET="$ABS_TARGET"
-export TARGET
+RUFINO_DISPLAY_NAME="${RUFINO_DISPLAY_NAME:-el usuario}"
+export RUFINO_VAULT_PATH RUFINO_DISPLAY_NAME TARGET
 PROMPT=$(envsubst '${RUFINO_VAULT_PATH} ${RUFINO_DISPLAY_NAME} ${TARGET}' < "$PROMPT_FILE")
 
 "$CLAUDE" -p "$PROMPT" \

@@ -40,7 +40,8 @@ fi
 echo "=== $(date) | planning import: $INBOX_FILE → $PLAN_FILE ===" >> "$LOGFILE"
 
 # Substitute the paths into the prompt
-export INBOX_FILE PLAN_FILE
+RUFINO_DISPLAY_NAME="${RUFINO_DISPLAY_NAME:-el usuario}"
+export RUFINO_VAULT_PATH RUFINO_DISPLAY_NAME INBOX_FILE PLAN_FILE
 PROMPT=$(envsubst '${RUFINO_VAULT_PATH} ${RUFINO_DISPLAY_NAME} ${INBOX_FILE} ${PLAN_FILE}' < "$PROMPT_FILE")
 
 "$CLAUDE" -p "$PROMPT" \
