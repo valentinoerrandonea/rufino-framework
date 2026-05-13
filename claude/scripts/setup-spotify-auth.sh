@@ -13,14 +13,14 @@
 #         security find-generic-password -s rufino-spotify-client-secret -a val -w
 #    2. En el dashboard de Spotify (developer.spotify.com/dashboard),
 #       editar la app y **agregar como Redirect URI**:
-#         http://localhost:8765/callback
+#         http://127.0.0.1:8765/callback
 #       (sin trailing slash, exactly así).
 #
 #  Flow:
-#    1. Levantamos un mini HTTP server en localhost:8765 con `nc` que
+#    1. Levantamos un mini HTTP server en 127.0.0.1:8765 con `nc` que
 #       responde 1 request y captura `code` del query string.
 #    2. Imprimimos la URL de authorize y la abrimos en el browser.
-#    3. Cuando Val autoriza, Spotify redirige a localhost:8765/callback
+#    3. Cuando Val autoriza, Spotify redirige a 127.0.0.1:8765/callback
 #       con `?code=XXX`. `nc` captura, parseamos el code.
 #    4. POST a /api/token con grant_type=authorization_code → access +
 #       refresh tokens.
@@ -28,7 +28,7 @@
 # ─────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REDIRECT_URI="http://localhost:8765/callback"
+REDIRECT_URI="http://127.0.0.1:8765/callback"
 SCOPE="user-read-recently-played"
 PORT=8765
 

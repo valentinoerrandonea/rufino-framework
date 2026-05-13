@@ -13,7 +13,7 @@ En `https://developer.spotify.com/dashboard`:
 3. En **Redirect URIs**, agregar:
 
    ```
-   http://localhost:8765/callback
+   http://127.0.0.1:8765/callback
    ```
 
    Exactly así — sin trailing slash, sin https, puerto 8765.
@@ -31,9 +31,9 @@ Sin este paso, Spotify rechaza el flow con `INVALID_CLIENT: Invalid redirect URI
 El script:
 
 1. Lee `rufino-spotify-client-id` y `rufino-spotify-client-secret` de Keychain.
-2. Levanta un mini HTTP server en `localhost:8765` con `nc -l` (single-shot listener).
+2. Levanta un mini HTTP server en `127.0.0.1:8765` con `nc -l` (single-shot listener).
 3. Abre `https://accounts.spotify.com/authorize?...` en el browser.
-4. Val autoriza → Spotify redirige a `http://localhost:8765/callback?code=XXX&state=YYY`.
+4. Val autoriza → Spotify redirige a `http://127.0.0.1:8765/callback?code=XXX&state=YYY`.
 5. `nc` captura la request line, parseamos `code` y `state` del query.
 6. Validamos CSRF (`state` matchea), después POST a `/api/token` con `grant_type=authorization_code`.
 7. Guardamos el `refresh_token` resultante en Keychain como `rufino-spotify-refresh-token` / account `val`.

@@ -190,7 +190,7 @@ Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos 
 > **Calendar y Screen Time requieren TCC Full Disk Access** para `/bin/bash` (System Settings → Privacy & Security → Full Disk Access). El primer run del LaunchAgent va a fallar con instrucciones claras en el log si el grant falta.
 >
 > **Spotify, GDrive, YouTube requieren setup OAuth one-time** antes del primer real run:
-> - Spotify: `bash ~/.claude/scripts/setup-spotify-auth.sh` después de registrar `http://localhost:8765/callback` en el dashboard de la app. Ver `docs/spotify-notes.md`.
+> - Spotify: `bash ~/.claude/scripts/setup-spotify-auth.sh` después de registrar `http://127.0.0.1:8765/callback` en el dashboard de la app. Ver `docs/spotify-notes.md`.
 > - GDrive: crear proyecto en GCP Console + OAuth client desktop + `bash ~/.claude/scripts/setup-gdrive-auth.sh`. Ver `docs/gdrive-notes.md`.
 > - YouTube: configurar export bimestral en `takeout.google.com` (reusa el OAuth de GDrive). Ver `docs/youtube-notes.md` (si existe).
 
