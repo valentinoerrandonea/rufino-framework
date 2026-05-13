@@ -81,15 +81,17 @@ cp -Rn vault-skeleton/. "$RUFINO_VAULT_PATH/"
 
 ### 6. Instalá los crons (macOS / launchd)
 
-Los plists vienen con placeholder `__HOME__`. Reemplazalo y copialos:
+Los plists vienen con placeholder `__HOME__` y con `RUFINO_VAULT_PATH` vacío. Reemplazá ambos en bloque y copialos:
 
 ```bash
 for f in system/launchd/*.plist; do
-  sed "s|__HOME__|$HOME|g" "$f" > "$HOME/Library/LaunchAgents/$(basename "$f")"
+  sed -e "s|__HOME__|$HOME|g" \
+      -e "/<key>RUFINO_VAULT_PATH<\\/key>/{n;s|<string></string>|<string>$RUFINO_VAULT_PATH</string>|;}" \
+      "$f" > "$HOME/Library/LaunchAgents/$(basename "$f")"
 done
 ```
 
-Después, editá cada uno de los 3 plists en `~/Library/LaunchAgents/` y poné tu `RUFINO_VAULT_PATH` en el bloque `<key>EnvironmentVariables</key>` (hoy está vacío).
+(El segundo sed busca la línea `<key>RUFINO_VAULT_PATH</key>` y reemplaza el `<string></string>` inmediatamente después.)
 
 Cargá los servicios:
 
@@ -109,7 +111,7 @@ RUFINO_DISPLAY_NAME=Tu Nombre
 
 0 22 * * * /bin/bash ~/.claude/scripts/rufino-cron.sh
 0 2 * * *  /bin/bash ~/.claude/scripts/rufino-light-cron.sh
-0 3 * * *  /bin/bash ~/.claude/scripts/rufino-lint-cron.sh
+0 3 * * 0  /bin/bash ~/.claude/scripts/rufino-lint-cron.sh   # Domingo 03:00 — lint es semanal
 ```
 
 ## Verificación post-install
@@ -161,11 +163,17 @@ rufino-notes-and-memory/
 |---|---|---|
 | `rufino-cron` | 22:00 | Procesa notas crudas (`rufino/*.md` raíz): augmentation, tags, triples, mueve a `rufino/<proyecto>/<tipo>/`. |
 | `rufino-light-cron` | 02:00 | Catch-up: notas que ya escribiste a mano fuera del flujo crudo. Agrega triples, promociona conceptos, registra personas, extrae pendientes. NO reescribe el cuerpo. |
-| `rufino-lint-cron` | 03:00 | Valida invariantes del vault (frontmatter, wikilinks rotos, stale-inbox, etc.) y escribe un reporte JSON en `_meta/`. |
+| `rufino-lint-cron` | Domingo 03:00 (semanal) | Valida invariantes del vault (frontmatter, wikilinks rotos, stale-inbox, etc.) y escribe un reporte JSON en `_meta/`. |
 
 Scripts on-demand (sin cron):
 - `rufino-import-plan.sh` — Procesa un doc importado siguiendo un JSON plan.
 - `rufino-process-single.sh` — Procesa una sola nota fuera del cron.
+- `rufino-reprocess.md` — Prompt one-shot (sin script wrapper) para reprocesar notas existentes y regenerar augmentation. Corré manualmente con env vars exportadas:
+  ```bash
+  export RUFINO_VAULT_PATH RUFINO_DISPLAY_NAME
+  envsubst '${RUFINO_VAULT_PATH} ${RUFINO_DISPLAY_NAME}' < ~/.claude/prompts/rufino-reprocess.md | claude -p --allowedTools "Read,Write,Edit,Glob,Grep,Bash" --dangerously-skip-permissions
+  ```
+  Es destructivo a nivel frontmatter — leé el prompt antes de correrlo.
 
 ## Componentes
 
