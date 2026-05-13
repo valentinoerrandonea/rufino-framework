@@ -1,0 +1,131 @@
+/* Gruber Darker — Tsoding style for Obsidian */
+
+:root {
+  --font-text-theme: 'Iosevka', monospace;
+  --font-monospace-theme: 'Iosevka', monospace;
+  --font-text-size: 18px;
+}
+
+body {
+  --font-text-override: 'Iosevka', monospace;
+  --font-monospace-override: 'Iosevka', monospace;
+}
+
+.theme-dark {
+  /* Gruber Darker base */
+  --background-primary: #181818;
+  --background-primary-alt: #1e1e1e;
+  --background-secondary: #202020;
+  --background-secondary-alt: #282828;
+  --background-modifier-border: #453d41;
+  --background-modifier-form-field: #101010;
+  --background-modifier-form-field-highlighted: #282828;
+  --background-modifier-box-shadow: rgba(0, 0, 0, 0.5);
+  --background-modifier-success: #4E9A06;
+  --background-modifier-error: #f43841;
+  --background-modifier-error-rgb: 244, 56, 65;
+  --background-modifier-error-hover: #ff4f58;
+  --background-modifier-cover: rgba(16, 16, 16, 0.8);
+
+  /* Text */
+  --text-normal: #e4e4ef;
+  --text-muted: #95a99f;
+  --text-faint: #555753;
+  --text-on-accent: #ffffff;
+  --text-on-accent-inverted: #181818;
+  --text-error: #f43841;
+  --text-success: #73c936;
+  --text-selection: rgba(72, 72, 72, 0.6);
+  --text-highlight-bg: rgba(255, 221, 51, 0.2);
+  --text-highlight-bg-active: rgba(255, 221, 51, 0.35);
+  --text-accent: #ffdd33;
+  --text-accent-hover: #ffe566;
+
+  /* Interactive */
+  --interactive-normal: #282828;
+  --interactive-hover: #353535;
+  --interactive-accent: #ffdd33;
+  --interactive-accent-hovered: #ffe566;
+  --interactive-accent-rgb: 255, 221, 51;
+
+  /* Headings */
+  --h1-color: #ffdd33;
+  --h2-color: #96a6c8;
+  --h3-color: #73c936;
+  --h4-color: #cc8c3c;
+  --h5-color: #9e95c7;
+  --h6-color: #95a99f;
+
+  /* Links */
+  --link-color: #96a6c8;
+  --link-color-hover: #b0c0e0;
+  --link-external-color: #9e95c7;
+  --link-external-color-hover: #b8aed7;
+  --link-unresolved-color: #cc8c3c;
+  --link-unresolved-opacity: 0.8;
+
+  /* Tags */
+  --tag-color: #cc8c3c;
+  --tag-background: rgba(204, 140, 60, 0.12);
+  --tag-padding-x: 6px;
+  --tag-padding-y: 2px;
+
+  /* Code */
+  --code-normal: #73c936;
+  --code-background: #101010;
+  --code-comment: #cc8c3c;
+
+  /* Cursor */
+  --cursor-color: #ffdd33;
+
+  /* Scrollbar */
+  --scrollbar-bg: #181818;
+  --scrollbar-thumb-bg: #353535;
+  --scrollbar-active-thumb-bg: #484848;
+
+  /* Titlebar */
+  --titlebar-background: #101010;
+  --titlebar-background-focused: #181818;
+  --titlebar-text-color: #e4e4ef;
+
+  /* Nav / sidebar */
+  --nav-item-color: #babdb9;
+  --nav-item-color-hover: #e4e4ef;
+  --nav-item-color-active: #ffdd33;
+  --nav-item-background-hover: #282828;
+  --nav-item-background-active: #353535;
+
+  /* Inline title */
+  --inline-title-color: #ffdd33;
+}
+
+/* Editor line height */
+.markdown-source-view.mod-cm6 .cm-line {
+  line-height: 1.6;
+}
+
+.markdown-preview-view {
+  line-height: 1.6;
+}
+
+/* Bold = Gruber yellow */
+strong, .cm-strong {
+  color: #ffdd33;
+  font-weight: 700;
+}
+
+/* Italic = Gruber wisteria */
+em, .cm-em {
+  color: #9e95c7;
+}
+
+/* Blockquote accent */
+blockquote, .markdown-source-view.mod-cm6 .HyperMD-quote {
+  border-left-color: #484848;
+  color: #95a99f;
+}
+
+/* Selection */
+::selection {
+  background-color: #484848;
+}
