@@ -1,0 +1,7 @@
+.DS_Store
+*.swp
+*.swo
+*~
+logs/
+.processing.lock
+.light-cron.lock
