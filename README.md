@@ -144,26 +144,50 @@ RUFINO_DISPLAY_NAME=Tu Nombre
 ```
 rufino-notes-and-memory/
 ├── README.md
+├── docs/
+│   ├── schema-fact-externo.md   # Schema canónico para ingestors externos
+│   └── schema-question.md       # Pipeline questions/ (Rufino pregunta, vos contestás)
 ├── claude/
 │   ├── hooks/obsidianMemoryCheck.sh
 │   ├── prompts/rufino-{daily,light-cron,import-plan,process-single,reprocess,lint}.md
+│   ├── prompts/rufino-ingest-{github,...}.md
 │   ├── rules/common/{obsidian-memory,rufino}.md
 │   ├── scripts/rufino-{cron,light-cron,import-plan,process-single,lint-cron}.sh
+│   ├── scripts/rufino-ingest-{github,...}.sh
 │   └── commands/remember.md
 ├── vault-skeleton/
 │   ├── perfil.md, preferencias.md
 │   ├── rufino/, conceptos/, proyectos/, sesiones/, inbox/
+│   ├── github/, questions/      # Carpetas para ingestors externos + Q&A
 │   ├── _meta/, _templates/, obsidian-config/, seed-notes/
-└── system/launchd/com.user.rufino-{cron,light-cron,lint-cron}.plist
+└── system/launchd/com.user.rufino-{cron,light-cron,lint-cron,ingest-github}.plist
 ```
 
 ## Qué hace cada cron
+
+### Crons de procesamiento (siempre activos)
 
 | Cron | Horario | Qué hace |
 |---|---|---|
 | `rufino-cron` | 22:00 | Procesa notas crudas (`rufino/*.md` raíz): augmentation, tags, triples, mueve a `rufino/<proyecto>/<tipo>/`. |
 | `rufino-light-cron` | 02:00 | Catch-up: notas que ya escribiste a mano fuera del flujo crudo. Agrega triples, promociona conceptos, registra personas, extrae pendientes. NO reescribe el cuerpo. |
 | `rufino-lint-cron` | Domingo 03:00 (semanal) | Valida invariantes del vault (frontmatter, wikilinks rotos, stale-inbox, etc.) y escribe un reporte JSON en `_meta/`. |
+
+### Ingestors externos (opt-in, ver `docs/schema-fact-externo.md`)
+
+Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos y los escribe en `<source>/facts/<slug>.md` del vault. Los facts comparten el schema canónico documentado en `docs/schema-fact-externo.md` (idempotente, slug determinístico, audit trail en `<source>/raw/`).
+
+| Cron | Horario | Fuente | Qué emite |
+|---|---|---|---|
+| `rufino-ingest-github` | 06:30 diario | `gh` CLI (GraphQL contributions API + REST events) | Facts de commits (1 por repo/día), PRs, issues, reviews, stars, repos creados, releases. |
+
+Pendientes (en fases sucesivas del roadmap de expansión, ver `proyectos/rufino/rufino-core/decisionRufinoExpansionPlanFases.md` en el vault de Val):
+- Fase 1.2: Apple Calendar, Screen Time, Chrome history (lectura local sin OAuth).
+- Fase 2: Spotify, Google Drive, YouTube watch history (OAuth).
+- Fase 3: Apple Health, WhatsApp (pesados).
+- Fase 4: Embeddings vault-wide, cross-source person resolver, MCP `ask-rufino`.
+- Fase 5: Weekly digest + email, bio mensual auto-update, año en revisión.
+- Fase 6: Dominios manuales (hardware, salud).
 
 Scripts on-demand (sin cron):
 - `rufino-import-plan.sh` — Procesa un doc importado siguiendo un JSON plan.
@@ -191,6 +215,9 @@ Scripts on-demand (sin cron):
 | `sesiones/<YYYY-MM-DD-tema>.md` | Cuando le pedís a Claude "guardá esto como sesión" (skill `/remember`). |
 | `rufino/<proyecto>/<tipo>/` | Cron `rufino-cron` mueve notas crudas procesadas. |
 | `rufino/_people/<nombre>.md` | Cron `rufino-cron` cuando detecta una persona nueva. |
+| `github/facts/<slug>.md` | Cron `rufino-ingest-github` cuando hay actividad en GitHub el día anterior. |
+| `<source>/facts/<slug>.md` | Cualquier ingestor externo configurado (ver `docs/schema-fact-externo.md`). |
+| `questions/<slug>.md` | Cualquier procesador que detecte una ambigüedad que solo vos podés resolver (ver `docs/schema-question.md`). |
 
 ## Triples tipados
 
