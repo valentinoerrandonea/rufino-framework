@@ -1,0 +1,22 @@
+{
+  "name": "ask-rufino-mcp",
+  "version": "0.1.0",
+  "description": "MCP server local que expone tools sobre el vault de Obsidian de Val (Rufino).",
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "ask-rufino": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node index.js --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "Val + Rufino",
+  "license": "MIT"
+}
