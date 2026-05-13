@@ -105,6 +105,12 @@ export RUFINO_WHATSAPP_WEEK="$TARGET_WEEK"
 export RUFINO_WHATSAPP_WEEK_START="$WEEK_START"
 export RUFINO_WHATSAPP_WEEK_END="$WEEK_END"
 
+# Reglas de filtering (Val 2026-05-13):
+# - Excluir 3 grupos puntuales que no aportan valor de "conversación".
+# - Threshold: solo conversaciones con >= 100 mensajes son BUENAS.
+export RUFINO_WHATSAPP_EXCLUDED_GROUPS='["BLESSED VLLC","Fechitas 💣 | Crobar ⛓️| Mandarine🍊| Mute 🏝️| The Bow🪭 | Rio 🦩🌿","Nicolás Grimaldi - eventos [2]"]'
+export RUFINO_WHATSAPP_MIN_MESSAGES="${RUFINO_WHATSAPP_MIN_MESSAGES:-100}"
+
 echo "  Levantando Puppeteer + WhatsApp Web..." >> "$LOGFILE"
 
 # Node script writes JSON to stdout, warns/errors to stderr.

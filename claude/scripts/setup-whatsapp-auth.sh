@@ -192,19 +192,32 @@ const path = require('path');
 const SESSION_DIR = process.env.RUFINO_WHATSAPP_SESSION_DIR
     || path.join(process.env.HOME, '.claude', 'whatsapp-session');
 
-const WEEK = process.env.RUFINO_WHATSAPP_WEEK || '';
-const WEEK_START = process.env.RUFINO_WHATSAPP_WEEK_START || '';
-const WEEK_END = process.env.RUFINO_WHATSAPP_WEEK_END || '';
+// Período: por default semanal. Override via RUFINO_WHATSAPP_PERIOD_* para
+// custom range (ej backfill anual).
+const PERIOD_LABEL = process.env.RUFINO_WHATSAPP_PERIOD_LABEL
+    || process.env.RUFINO_WHATSAPP_WEEK || '';
+const PERIOD_START = process.env.RUFINO_WHATSAPP_PERIOD_START
+    || process.env.RUFINO_WHATSAPP_WEEK_START || '';
+const PERIOD_END = process.env.RUFINO_WHATSAPP_PERIOD_END
+    || process.env.RUFINO_WHATSAPP_WEEK_END || '';
 
-if (!WEEK || !WEEK_START || !WEEK_END) {
-    console.error('ERROR: falta RUFINO_WHATSAPP_WEEK / WEEK_START / WEEK_END');
+if (!PERIOD_LABEL || !PERIOD_START || !PERIOD_END) {
+    console.error('ERROR: falta RUFINO_WHATSAPP_PERIOD_LABEL / PERIOD_START / PERIOD_END (o legacy WEEK*)');
     process.exit(1);
 }
 
-// Lunes 00:00 local time → unix seconds.
-const startTs = Math.floor(new Date(`${WEEK_START}T00:00:00`).getTime() / 1000);
-// Domingo 23:59:59 local time → unix seconds.
-const endTs = Math.floor(new Date(`${WEEK_END}T23:59:59`).getTime() / 1000);
+let EXCLUDED_GROUPS = [];
+try {
+    EXCLUDED_GROUPS = JSON.parse(process.env.RUFINO_WHATSAPP_EXCLUDED_GROUPS || '[]');
+} catch (e) {
+    console.error('WARN: RUFINO_WHATSAPP_EXCLUDED_GROUPS inválido — usando []');
+}
+const MIN_MESSAGES = parseInt(process.env.RUFINO_WHATSAPP_MIN_MESSAGES || '0', 10);
+const FETCH_LIMIT = parseInt(process.env.RUFINO_WHATSAPP_FETCH_LIMIT || '500', 10);
+const TOP_N = parseInt(process.env.RUFINO_WHATSAPP_TOP_N || '10', 10);
+
+const startTs = Math.floor(new Date(`${PERIOD_START}T00:00:00`).getTime() / 1000);
+const endTs = Math.floor(new Date(`${PERIOD_END}T23:59:59`).getTime() / 1000);
 
 // Stopwords español + ruido de mensajería. Hardcoded — Fase 4 puede mejorar.
 const STOPWORDS = new Set([
@@ -304,10 +317,18 @@ async function main() {
 
     for (const chat of chats) {
         try {
-            // Fetch last 500 messages, filter by timestamp window.
-            const msgs = await chat.fetchMessages({ limit: 500 });
+            const chatName = chat.name || '';
+            if (EXCLUDED_GROUPS.includes(chatName)) {
+                console.error('SKIP excluded group: ' + chatName);
+                continue;
+            }
+            const msgs = await chat.fetchMessages({ limit: FETCH_LIMIT });
             const inWindow = msgs.filter((m) => m.timestamp >= startTs && m.timestamp <= endTs);
             if (inWindow.length === 0) continue;
+            if (inWindow.length < MIN_MESSAGES) {
+                console.error('SKIP under-threshold (' + inWindow.length + ' < ' + MIN_MESSAGES + '): ' + chatName);
+                continue;
+            }
 
             chatsActive += 1;
 
@@ -381,13 +402,17 @@ async function main() {
     const topTopics = recurringTopics.slice(0, 20);
 
     const output = {
-        week: WEEK,
-        week_start: WEEK_START,
-        week_end: WEEK_END,
+        period: PERIOD_LABEL,
+        period_start: PERIOD_START,
+        period_end: PERIOD_END,
+        week: PERIOD_LABEL,
+        week_start: PERIOD_START,
+        week_end: PERIOD_END,
+        config: { excluded_groups: EXCLUDED_GROUPS, min_messages: MIN_MESSAGES, fetch_limit: FETCH_LIMIT, top_n: TOP_N },
         total_received: totalReceived,
         total_sent: totalSent,
         chats_active: chatsActive,
-        top_contacts: perContact.slice(0, 10),
+        top_contacts: perContact.slice(0, TOP_N),
         recurring_topics: topTopics,
         // CRITICAL: nunca incluir texto literal de mensajes.
     };
