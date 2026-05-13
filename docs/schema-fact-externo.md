@@ -106,7 +106,7 @@ No commitear al vault git si los datos son sensibles (configurar `.gitignore`).
 | github | sí | daily 06:30 | 2026-05-13 (dry-run) |
 | calendar | sí | daily 07:00 | 2026-05-13 (dry-run) |
 | screentime | sí | sunday 04:00 | 2026-05-13 (dry-run) |
-| chrome | sí | sunday 03:30 | 2026-05-13 (dry-run) |
+| browsing | sí | sunday 03:30 | reemplaza chrome — Zen + Safari unificados |
 | spotify | sí | sunday 04:30 | requiere setup OAuth |
 | gdrive | sí | day 1 monthly 05:00 | requiere setup OAuth |
 | youtube | sí | day 5 monthly 05:30 | requiere setup Takeout (depende GDrive OAuth) |

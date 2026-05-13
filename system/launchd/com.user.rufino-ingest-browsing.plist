@@ -3,12 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.user.rufino-ingest-chrome</string>
+    <string>com.user.rufino-ingest-browsing</string>
 
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>__HOME__/.claude/scripts/rufino-ingest-chrome.sh</string>
+        <string>__HOME__/.claude/scripts/rufino-ingest-browsing.sh</string>
     </array>
 
     <key>StartCalendarInterval</key>
@@ -25,10 +25,10 @@
     <false/>
 
     <key>StandardOutPath</key>
-    <string>__HOME__/.claude/logs/rufino/rufino-ingest-chrome.log</string>
+    <string>__HOME__/.claude/logs/rufino/rufino-ingest-browsing.log</string>
 
     <key>StandardErrorPath</key>
-    <string>__HOME__/.claude/logs/rufino/rufino-ingest-chrome.log</string>
+    <string>__HOME__/.claude/logs/rufino/rufino-ingest-browsing.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

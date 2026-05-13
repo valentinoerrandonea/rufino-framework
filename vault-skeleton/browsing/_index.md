@@ -2,14 +2,14 @@
 tags:
   - proyecto/rufino
   - tipo/meta
-  - source/chrome
+  - source/browsing
 created: 2026-05-13
 updated: 2026-05-13
 ---
 
-# Chrome — Índice de facts
+# Browsing — Índice de facts
 
-> Este archivo lo mantiene `rufino-ingest-chrome` (cron semanal, domingos 03:30). No editar manualmente.
+> Mantenido por `rufino-ingest-browsing` (cron domingos 03:30). Lee history de Zen + Safari unificado. No editar manualmente.
 
 ## Stats
 
@@ -22,12 +22,8 @@ updated: 2026-05-13
 | Tipo | Cantidad |
 |------|----------|
 | top-domains-week | 0 |
-| repeated-search-week | 0 |
-| research-topic-week | 0 |
-
-## Semanas procesadas
-
-- —
+| search-repeated | 0 |
+| research-topic | 0 |
 
 ## Facts recientes
 
