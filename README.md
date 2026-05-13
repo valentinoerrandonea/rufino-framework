@@ -186,6 +186,8 @@ Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos 
 | `rufino-ingest-spotify` | Domingo 04:30 | Spotify Web API (`/me/player/recently-played`) | Summary semanal + top artists + tracks recurrentes (≥5 plays). |
 | `rufino-ingest-gdrive` | Día 1 mensual 05:00 | Google Drive API v3 (changes delta) | Importa docs/PDFs nuevos de "Mi unidad" a `rufino/` raw para que el pipeline normal los procese. Emite summary fact mensual. |
 | `rufino-ingest-youtube` | Día 5 mensual 05:30 | Google Takeout export bimestral (consume el ZIP desde Drive) | Summary bimestral + top channels + research clusters de watch history. |
+| `rufino-ingest-applehealth` | Día 2 mensual 06:00 | iCloud Drive `RufinoHealth/` (poblada por Apple Shortcut iOS) | Summary mensual + workout types recurrentes + sleep/HR/steps trends. |
+| `rufino-ingest-whatsapp` | Domingo 05:00 | WhatsApp Web vía `whatsapp-web.js` (Puppeteer headless, sesión persistida) | Summary semanal + frecuencia por contacto top 10 + topics recurrentes. Privacy filter doble (sin texto literal). |
 
 > **Calendar y Screen Time requieren TCC Full Disk Access** para `/bin/bash` (System Settings → Privacy & Security → Full Disk Access). El primer run del LaunchAgent va a fallar con instrucciones claras en el log si el grant falta.
 >

@@ -110,7 +110,7 @@ No commitear al vault git si los datos son sensibles (configurar `.gitignore`).
 | spotify | sí | sunday 04:30 | requiere setup OAuth |
 | gdrive | sí | day 1 monthly 05:00 | requiere setup OAuth |
 | youtube | sí | day 5 monthly 05:30 | requiere setup Takeout (depende GDrive OAuth) |
-| applehealth | pendiente Fase 3 | — | — |
-| whatsapp | pendiente Fase 3 | — | — |
+| applehealth | sí | day 2 monthly 06:00 | requiere Shortcut iOS armado (ver docs/applehealth-notes.md) |
+| whatsapp | sí | sunday 05:00 | requiere setup-whatsapp-auth.sh (QR scan) |
 
 Actualizar esta tabla al cerrar cada fase.
