@@ -103,10 +103,10 @@ No commitear al vault git si los datos son sensibles (configurar `.gitignore`).
 | Source | Schema impl | Cron | Última corrida |
 |--------|-------------|------|----------------|
 | elberr | sí (precede a este schema) | manual via dashboard | — |
-| github | sí | daily 06:30 | — |
-| calendar | pendiente Fase 1.2 | — | — |
-| screentime | pendiente Fase 1.2 | — | — |
-| chrome | pendiente Fase 1.2 | — | — |
+| github | sí | daily 06:30 | 2026-05-13 (dry-run) |
+| calendar | sí | daily 07:00 | 2026-05-13 (dry-run) |
+| screentime | sí | sunday 04:00 | 2026-05-13 (dry-run) |
+| chrome | sí | sunday 03:30 | 2026-05-13 (dry-run) |
 | spotify | pendiente Fase 2 | — | — |
 | gdrive | pendiente Fase 2 | — | — |
 | youtube | pendiente Fase 2 | — | — |

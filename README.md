@@ -180,9 +180,13 @@ Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos 
 | Cron | Horario | Fuente | Qué emite |
 |---|---|---|---|
 | `rufino-ingest-github` | 06:30 diario | `gh` CLI (GraphQL contributions API + REST events) | Facts de commits (1 por repo/día), PRs, issues, reviews, stars, repos creados, releases. |
+| `rufino-ingest-calendar` | 07:00 diario | `~/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb` (TCC) | Facts por evento del día anterior, con personas invitadas como tags `persona/<x>`. |
+| `rufino-ingest-screentime` | Domingo 04:00 | `~/Library/Application Support/Knowledge/knowledgeC.db` (TCC) | Summary semanal top-10 apps + facts individuales de top-5 con minutos de uso. |
+| `rufino-ingest-chrome` | Domingo 03:30 | `~/Library/Application Support/Google/Chrome/Default/History` (copia a tmp) | Top dominios de la semana + facts por queries repetidas (≥3 veces) + clusters de research. Privacy filter ampliado. |
+
+> **Calendar y Screen Time requieren TCC Full Disk Access** para `/bin/bash` (System Settings → Privacy & Security → Full Disk Access). El primer run del LaunchAgent va a fallar con instrucciones claras en el log si el grant falta. Ver `docs/schema-fact-externo.md` y `docs/screentime-notes.md`.
 
 Pendientes (en fases sucesivas del roadmap de expansión, ver `proyectos/rufino/rufino-core/decisionRufinoExpansionPlanFases.md` en el vault de Val):
-- Fase 1.2: Apple Calendar, Screen Time, Chrome history (lectura local sin OAuth).
 - Fase 2: Spotify, Google Drive, YouTube watch history (OAuth).
 - Fase 3: Apple Health, WhatsApp (pesados).
 - Fase 4: Embeddings vault-wide, cross-source person resolver, MCP `ask-rufino`.
