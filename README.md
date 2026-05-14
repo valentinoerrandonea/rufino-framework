@@ -202,8 +202,19 @@ Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos 
 - **Cross-source person resolver** — `claude/scripts/rufino-person-resolver.{py,sh}`. Detecta posibles duplicados en `_people/` con string similarity (Levenshtein + Jaccard + slug containment) y genera notas en `vault/questions/`. Val responde, se mergea. Ver `docs/person-resolver-notes.md`.
 - **MCP server `ask-rufino`** — `claude/mcp/ask-rufino/`. Servidor MCP local (stdio) que expone 6 tools (`search_vault`, `find_person`, `list_decisions`, `list_facts`, `read_note`, `vault_stats`) para que cualquier sesión de Claude Code pueda consultar el vault. Setup: `bash ~/.claude/scripts/setup-mcp-ask-rufino.sh` + agregar block a `~/.claude.json`. Ver `docs/mcp-ask-rufino-notes.md`.
 
+### Outputs automáticos (Fase 5)
+
+3 crons que generan resúmenes derivados del vault y los escriben en `${RUFINO_VAULT_PATH}/general/`:
+
+| Cron | Horario | Output |
+|---|---|---|
+| `rufino-digest-weekly` | Viernes 18:00 | `general/digests/<YYYY-WW>.md` + email a `valentinoerrandonea2002@gmail.com` (Gmail SMTP, app password en Keychain). |
+| `rufino-bio-monthly` | Día 1 mensual 06:00 | `general/bio/<YYYY-MM>.md` — bio narrativa del mes (5 párrafos: identidad, proyectos, intereses, highlights, stack). |
+| `rufino-year-review` | 30 dic 13:00 | `general/year-in-review/<YYYY>.md` — retrospectiva anual completa con narrativa + stats numéricos. |
+
+> **Weekly digest requiere app password de Gmail** generado en `https://myaccount.google.com/apppasswords` y guardado en Keychain: `security add-generic-password -s rufino-gmail-app-password -a val -w '<16-char>' -U`. Requiere 2FA activado.
+
 Pendientes (en fases sucesivas del roadmap de expansión, ver `proyectos/rufino/rufino-core/decisionRufinoExpansionPlanFases.md` en el vault de Val):
-- Fase 5: Weekly digest + email, bio mensual auto-update, año en revisión.
 - Fase 6: Dominios manuales (hardware, salud).
 
 Scripts on-demand (sin cron):
