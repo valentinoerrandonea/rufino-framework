@@ -196,9 +196,13 @@ Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos 
 > - GDrive: crear proyecto en GCP Console + OAuth client desktop + `bash ~/.claude/scripts/setup-gdrive-auth.sh`. Ver `docs/gdrive-notes.md`.
 > - YouTube: configurar export bimestral en `takeout.google.com` (reusa el OAuth de GDrive). Ver `docs/youtube-notes.md` (si existe).
 
+### Capas adicionales sobre los ingestors (Fase 4)
+
+- **Embeddings vault-wide** — `claude/scripts/rufino-build-embeddings.{py,sh}` + `rufino-search-embeddings.{py,sh}`. Indexa todas las notas con Ollama + `nomic-embed-text` (768d) en SQLite + `sqlite-vec`. Storage: `${RUFINO_VAULT_PATH}/_meta/embeddings.sqlite`. Build inicial idempotente (~20 min para ~800 notas, reruns en <1s para deltas). Ver `docs/embeddings-notes.md`.
+- **Cross-source person resolver** — `claude/scripts/rufino-person-resolver.{py,sh}`. Detecta posibles duplicados en `_people/` con string similarity (Levenshtein + Jaccard + slug containment) y genera notas en `vault/questions/`. Val responde, se mergea. Ver `docs/person-resolver-notes.md`.
+- **MCP server `ask-rufino`** — `claude/mcp/ask-rufino/`. Servidor MCP local (stdio) que expone 6 tools (`search_vault`, `find_person`, `list_decisions`, `list_facts`, `read_note`, `vault_stats`) para que cualquier sesión de Claude Code pueda consultar el vault. Setup: `bash ~/.claude/scripts/setup-mcp-ask-rufino.sh` + agregar block a `~/.claude.json`. Ver `docs/mcp-ask-rufino-notes.md`.
+
 Pendientes (en fases sucesivas del roadmap de expansión, ver `proyectos/rufino/rufino-core/decisionRufinoExpansionPlanFases.md` en el vault de Val):
-- Fase 3: Apple Health, WhatsApp (pesados).
-- Fase 4: Embeddings vault-wide, cross-source person resolver, MCP `ask-rufino`.
 - Fase 5: Weekly digest + email, bio mensual auto-update, año en revisión.
 - Fase 6: Dominios manuales (hardware, salud).
 
