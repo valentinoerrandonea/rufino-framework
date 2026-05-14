@@ -318,7 +318,9 @@ async function main() {
     for (const chat of chats) {
         try {
             const chatName = chat.name || '';
-            if (EXCLUDED_GROUPS.includes(chatName)) {
+            const chatNameLower = chatName.toLowerCase();
+            const isExcluded = EXCLUDED_GROUPS.some(g => g.toLowerCase() === chatNameLower);
+            if (isExcluded) {
                 console.error('SKIP excluded group: ' + chatName);
                 continue;
             }
@@ -366,14 +368,20 @@ async function main() {
                 entry.chats.add(contactId);
             }
 
+            const sortedContactTokens = Array.from(contactTokens.entries())
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 30)
+                .map(([token, count]) => ({ token, count }));
+
             perContact.push({
                 name: displayName,
                 slug: slugify(displayName),
-                id_hash: shortHash(contactId), // privacy: hash, no exposemos número
+                id_hash: shortHash(contactId),
                 is_group: !!chat.isGroup,
                 received,
                 sent,
                 total: received + sent,
+                top_tokens: sortedContactTokens,
             });
         } catch (err) {
             // Skip bad chat, log to stderr (no a stdout — stdout es el JSON).

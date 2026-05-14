@@ -95,9 +95,83 @@ Si `recurring_topics` está vacío, omitir esa línea.
 `external_ref.type`: `chat-summary-week`. `external_ref.id`: `${RUFINO_WHATSAPP_WEEK}`.
 `confidence`: `high` (counts vienen de WhatsApp Web autoritativo).
 
-#### 3b. Facts: `whatsapp-chat-frequency-<contact-slug>-<YYYY-WW>`
+#### 3b. Facts: `whatsapp-chat-frequency-<contact-slug>-<YYYY-WW>` + creación de `_people/<slug>.md`
 
 UN fact por cada contacto del **top-10** del raw JSON. Si `top_contacts` tiene menos de 10, emití uno por cada uno.
+
+**IMPORTANTE — creación de `_people/<slug>.md`** (regla Val 2026-05-13):
+Para cada contacto **NO grupo** (`is_group: false`) que pase el threshold ≥100 mensajes (todos los del top_contacts ya pasan), **CREAR** `${RUFINO_VAULT_PATH}/rufino/_people/<contact-slug>.md` si NO existe. Frontmatter mínimo:
+
+```yaml
+---
+tags:
+  - tipo/persona
+  - persona/<slug>
+created: <YYYY-MM-DD>
+updated: <YYYY-MM-DD>
+sources:
+  - whatsapp
+---
+
+# <Nombre completo del contacto>
+
+Contacto registrado automáticamente desde WhatsApp (≥100 mensajes en <período>).
+
+## Menciones en notas
+
+- [[<slug-del-fact-de-frequency>]] — <YYYY-WW> — contexto: <total> mensajes intercambiados.
+```
+
+Si el `_people/<slug>.md` YA existe, NO sobrescribir el body completo — solo:
+- Append una línea a la sección "## Menciones en notas" con el nuevo fact y bump del `updated:`.
+- Append/update la sección "## Topics conversacionales (WhatsApp)" descrita abajo.
+- Append/update la sección "## Cross-references" descrita abajo.
+
+Para grupos (`is_group: true`), NO crear `_people/<x>.md` (los grupos no son personas individuales). En su lugar, dejá `tema/grupo` en los tags del fact.
+
+**Ambigüedad cross-source**: si el nombre del contacto WhatsApp coincide con un slug de `_people/` que YA existe pero claramente es otra persona (ej "Diego" en WhatsApp vs "Diego" diseñador en `_people/diego-disenador-umbru.md`), genera nota en `questions/` para que Val resuelva. El nombre completo de la agenda de Val suele ser desambiguador.
+
+#### 3b-bis. Enriquecimiento de `_people/<slug>.md` con topics + cross-references
+
+Para cada contacto **no-grupo** que tenga entrada en `_people/` (ya sea recién creada o existente):
+
+**Sección "## Topics conversacionales (WhatsApp)"** — agregar o actualizar:
+
+```markdown
+## Topics conversacionales (WhatsApp)
+
+Top keywords del último período (${RUFINO_WHATSAPP_WEEK}): `<token1>` (N), `<token2>` (M), `<token3>` (K), ...
+
+Estos son tokens agregados de los mensajes intercambiados (sin texto literal). Son señal débil — un keyword recurrente puede ser cualquier cosa (planificación, broma interna, frustración). Interpretá con cuidado.
+```
+
+Tomá los `top_tokens` del contacto en el raw JSON (campo `top_contacts[].top_tokens`). Filtrá tokens que ya son palabras genéricas evidentes del contexto de Val (ej "bien", "casa", "hacer", "estoy", "porque" — son ruido residual del stopword filter incompleto). Mostrá los 8-10 más relevantes.
+
+Si el contacto ya tiene esta sección de una corrida previa, REEMPLAZALA con la nueva (no acumular linealmente — cada período pisa la sección con los topics actuales). Mantener una nota de "última actualización: ${RUFINO_WHATSAPP_WEEK_END}".
+
+**Sección "## Cross-references"** — buscar y agregar:
+
+Hacé `grep -rl "[[<slug>]]" ${RUFINO_VAULT_PATH}/proyectos/ ${RUFINO_VAULT_PATH}/rufino/ ${RUFINO_VAULT_PATH}/sesiones/ ${RUFINO_VAULT_PATH}/conceptos/ 2>/dev/null` para encontrar notas existentes que mencionen al contacto via wikilink. Y `grep -rl "persona/<slug>" ${RUFINO_VAULT_PATH}/` para buscar por tag.
+
+Agregá una sección:
+
+```markdown
+## Cross-references
+
+Notas del vault que mencionan a esta persona:
+- [[<other-note-1>]] — <one-line context inferido del título o frontmatter>
+- [[<other-note-2>]] — ...
+```
+
+Si no hay matches: omití la sección entera.
+
+Si la sección ya existe, actualizala con la lista fresca.
+
+#### 3b-tris. Detección de nuevos data points (cross-source matching)
+
+Si en `_people/<slug>.md` ya existía info de **otras fuentes** (ej Calendar, GitHub commits, sesiones de proyecto), no la borres — esa info puede ser más rica que lo que WhatsApp aporta. WhatsApp solo agrega su capa de keywords + frecuencia. Las otras capas (qué proyecto trabajaron juntos, cuándo se reunieron, etc.) viven en sus respectivas fuentes.
+
+Si detectás que el nombre del contacto NO matchea ningún slug existente pero su `slug` derivado es similar a uno existente (diferencia en accent / capitalization / orden de palabras), generar nota en `questions/` con type `person-resolution`. Ej: contacto "Tomás Huertas" del WhatsApp + `_people/huertas.md` existente → posible match, preguntar.
 
 Slug: `whatsapp-chat-frequency-<contact-slug>-${RUFINO_WHATSAPP_WEEK}` lowercased.
 - `<contact-slug>` = el `slug` ya pre-computado del raw (es kebab-case del nombre).
