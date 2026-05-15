@@ -6,3 +6,9 @@ logs/
 .processing.lock
 .light-cron.lock
 .claude/
+node_modules/
+*.env
+.env*
+secrets/
+*.pem
+*.key

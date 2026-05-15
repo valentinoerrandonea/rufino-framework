@@ -189,12 +189,165 @@ Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos 
 | `rufino-ingest-applehealth` | Día 2 mensual 06:00 | iCloud Drive `RufinoHealth/` (poblada por Apple Shortcut iOS) | Summary mensual + workout types recurrentes + sleep/HR/steps trends. |
 | `rufino-ingest-whatsapp` | Domingo 05:00 | WhatsApp Web vía `whatsapp-web.js` (Puppeteer headless, sesión persistida) | Summary semanal + frecuencia por contacto top 10 + topics recurrentes. Privacy filter doble (sin texto literal). |
 
-> **Calendar y Screen Time requieren TCC Full Disk Access** para `/bin/bash` (System Settings → Privacy & Security → Full Disk Access). El primer run del LaunchAgent va a fallar con instrucciones claras en el log si el grant falta.
->
-> **Spotify, GDrive, YouTube requieren setup OAuth one-time** antes del primer real run:
-> - Spotify: `bash ~/.claude/scripts/setup-spotify-auth.sh` después de registrar `http://127.0.0.1:8765/callback` en el dashboard de la app. Ver `docs/spotify-notes.md`.
-> - GDrive: crear proyecto en GCP Console + OAuth client desktop + `bash ~/.claude/scripts/setup-gdrive-auth.sh`. Ver `docs/gdrive-notes.md`.
-> - YouTube: configurar export bimestral en `takeout.google.com` (reusa el OAuth de GDrive). Ver `docs/youtube-notes.md` (si existe).
+## Setup por ingestor / output (opt-in, one-time)
+
+Cada ingestor externo necesita su propio setup. Hacelo solo para los que vas a usar. Todos guardan credenciales en macOS Keychain (no en archivos del repo).
+
+### GitHub (`rufino-ingest-github`)
+
+1. Instalá la `gh` CLI: `brew install gh`.
+2. Autenticá: `gh auth login` → elegí GitHub.com → HTTPS → autorizá en el browser.
+3. Verificá: `gh api user` debería devolver tu user JSON.
+
+### Apple Calendar (`rufino-ingest-calendar`)
+
+Requiere **TCC Full Disk Access** para `/bin/bash`:
+1. System Settings → Privacy & Security → Full Disk Access.
+2. Click `+` y agregá `/bin/bash`.
+3. Reload el LaunchAgent: `launchctl unload ~/Library/LaunchAgents/com.user.rufino-ingest-calendar.plist && launchctl load ~/Library/LaunchAgents/com.user.rufino-ingest-calendar.plist`.
+
+### Screen Time (`rufino-ingest-screentime`)
+
+Mismo TCC que Calendar — agregá `/bin/bash` a Full Disk Access. El script tiene un probe que aborta con mensaje claro si el grant falta. Ver `docs/screentime-notes.md`.
+
+### Browsing (`rufino-ingest-browsing`)
+
+No requiere setup OAuth ni TCC adicional — lee las sqlite de Zen y Safari directamente. Si no tenés alguno de los dos browsers, el script lo skipea sin error.
+
+### Spotify (`rufino-ingest-spotify`)
+
+1. Creá una app en `https://developer.spotify.com/dashboard`.
+2. En **Edit settings** agregá Redirect URI: `http://127.0.0.1:8765/callback` (exacto — sin trailing slash).
+3. Guardá las credenciales en Keychain:
+   ```bash
+   security add-generic-password -s rufino-spotify-client-id     -a val -w '<CLIENT_ID>'
+   security add-generic-password -s rufino-spotify-client-secret -a val -w '<CLIENT_SECRET>'
+   ```
+4. Corré el bootstrap (abre browser, autorizás, guarda `refresh_token` en Keychain):
+   ```bash
+   bash ~/.claude/scripts/setup-spotify-auth.sh
+   ```
+
+Ver `docs/spotify-notes.md` para detalles y limitaciones de la API.
+
+### Google Drive (`rufino-ingest-gdrive`)
+
+1. En `https://console.cloud.google.com`, creá un proyecto y habilitá **Google Drive API**.
+2. OAuth consent screen → User type **External**, status **Testing**. Agregá scopes `drive.readonly` y `drive.metadata.readonly`. Sumá tu email como **test user** (si no, OAuth falla con "access blocked").
+3. Credentials → Create OAuth client ID → **Desktop app** → Download JSON.
+4. Mové el JSON al path esperado:
+   ```bash
+   mkdir -p ~/.claude/secrets
+   mv ~/Downloads/client_secret_*.json ~/.claude/secrets/gdrive-credentials.json
+   chmod 600 ~/.claude/secrets/gdrive-credentials.json
+   ```
+5. Corré el bootstrap:
+   ```bash
+   bash ~/.claude/scripts/setup-gdrive-auth.sh
+   ```
+
+Ver `docs/gdrive-notes.md`. El primer run del cron solo registra el cursor (no importa nada); a partir del segundo mes ya hay delta.
+
+### YouTube (`rufino-ingest-youtube`)
+
+Reusa el OAuth de GDrive (mismo refresh token en Keychain). Setup adicional:
+1. Configurá un export bimestral de YouTube en `https://takeout.google.com`:
+   - Solo "YouTube and YouTube Music" → "history".
+   - Destino: Drive, "Send download link via email", frequency **every 2 months**.
+2. El ingestor mensual va a encontrar el ZIP en Drive automáticamente.
+
+Para procesar un backfill manual (Takeout one-shot bajado a disco):
+```bash
+RUFINO_YOUTUBE_BACKFILL_FILE=/path/historial-de-reproducciones.json \
+RUFINO_YOUTUBE_BACKFILL_SINCE=2025-01-01 \
+  bash ~/.claude/scripts/rufino-ingest-youtube-backfill.sh
+```
+
+### Apple Health (`rufino-ingest-applehealth`)
+
+Requiere armar un **Apple Shortcut** en el iPhone que escriba JSONs diarios a `iCloud Drive/RufinoHealth/`. No hay API server-side — HealthKit es local al iPhone.
+
+Pasos altos:
+1. iPhone → Settings → Privacy & Security → Health → Shortcuts: habilitá acceso a todas las categorías (Workouts, Sleep, Heart Rate, Steps, HRV).
+2. Files app → iCloud Drive → New Folder → `RufinoHealth` (case-sensitive).
+3. App Shortcuts → Automation → New Time-of-Day (23:55, daily, "Ask Before Running" OFF) → armar 4 bloques que escriban JSONs a `RufinoHealth/`.
+
+Blueprint completo paso a paso en `docs/applehealth-notes.md` (incluye nombres exactos de las actions iOS).
+
+### WhatsApp (`rufino-ingest-whatsapp`)
+
+1. Instalá Node: `brew install node`.
+2. Bootstrap interactivo (instala `whatsapp-web.js`, baja Chromium via Puppeteer, levanta WhatsApp Web headless y te muestra un QR):
+   ```bash
+   bash ~/.claude/scripts/setup-whatsapp-auth.sh
+   ```
+3. Desde el celular: WhatsApp → Settings → Linked Devices → Link a Device → escaneá el QR.
+4. La sesión queda persistida en `~/.claude/whatsapp-session/` (no hace falta re-escanear).
+
+Privacy: el ingestor guarda counts agregados + nombres de contactos resueltos + keywords agregados. **No guarda texto literal de mensajes ni números crudos** (los IDs se hashean). Ver `docs/whatsapp-notes.md`.
+
+Si querés excluir grupos: setear `RUFINO_WHATSAPP_EXCLUDED_GROUPS="Grupo X|Grupo Y"` (pipe-separated, case-insensitive).
+
+### Embeddings vault-wide (Fase 4 — opcional)
+
+Búsqueda semántica local con Ollama + sqlite-vec, sin red.
+
+```bash
+brew install ollama
+ollama pull nomic-embed-text                    # ~270 MB, modelo 768d
+pip3 install --break-system-packages sqlite-vec
+
+# Build inicial (idempotente, ~20 min para ~800 notas):
+bash ~/.claude/scripts/rufino-build-embeddings.sh
+
+# Buscar:
+bash ~/.claude/scripts/rufino-search-embeddings.sh "tu query"
+```
+
+Storage: `${RUFINO_VAULT_PATH}/_meta/embeddings.sqlite` (no se commitea, vive en el vault). Ver `docs/embeddings-notes.md`.
+
+### MCP server `ask-rufino` (Fase 4 — opcional)
+
+Servidor MCP local stdio que expone 6 tools (`search_vault`, `find_person`, `list_decisions`, `list_facts`, `read_note`, `vault_stats`) a cualquier sesión de Claude Code.
+
+```bash
+bash ~/.claude/scripts/setup-mcp-ask-rufino.sh
+```
+
+Después pegá en `~/.claude.json` dentro del objeto `mcpServers` el bloque JSON que el setup imprime al final. Reiniciá Claude Code y verificá con `claude mcp list`. Ver `docs/mcp-ask-rufino-notes.md`.
+
+### Person resolver (Fase 4 — on-demand)
+
+Sin cron — corré on-demand cuando quieras detectar duplicados en `_people/`:
+```bash
+bash ~/.claude/scripts/rufino-person-resolver.sh
+```
+Las preguntas que genere van a `${RUFINO_VAULT_PATH}/questions/`. Vos las contestás editando el frontmatter y al próximo run se mergea.
+
+### Outputs Fase 5 (digest + bio + año en revisión)
+
+Los 3 outputs mandan email vía Gmail SMTP. Setup compartido one-time:
+
+1. Activá **2FA** en tu cuenta de Gmail (requisito de Google para app passwords).
+2. Generá un app password en `https://myaccount.google.com/apppasswords` (16 caracteres).
+3. Guardalo en Keychain:
+   ```bash
+   security add-generic-password -s rufino-gmail-app-password -a val -w '<16-char-pwd>' -U
+   ```
+4. (Opcional) Override del destinatario default (que va hardcoded al email de Val):
+   ```bash
+   export RUFINO_DIGEST_EMAIL_TO="tu-email@gmail.com"
+   ```
+   Agregalo a `~/.zshenv` si querés que persista. Mismo override aplica a bio y year-review.
+
+Test manual del digest (no manda email):
+```bash
+RUFINO_DIGEST_DRY_RUN=1 bash ~/.claude/scripts/rufino-digest-weekly.sh
+```
+
+---
+
+> **Heads up TCC**: el primer run de Calendar/Screen Time **siempre falla** la primera vez con `authorization denied` hasta que agregás `/bin/bash` a Full Disk Access. El log te indica qué falta.
 
 ### Capas adicionales sobre los ingestors (Fase 4)
 
@@ -212,7 +365,7 @@ Cada ingestor lee una fuente externa (API o data local), deriva facts atómicos 
 | `rufino-bio-monthly` | Día 1 mensual 06:00 | `general/bio/<YYYY-MM>.md` — bio narrativa del mes (5 párrafos: identidad, proyectos, intereses, highlights, stack). |
 | `rufino-year-review` | 30 dic 13:00 | `general/year-in-review/<YYYY>.md` — retrospectiva anual completa con narrativa + stats numéricos. |
 
-> **Weekly digest requiere app password de Gmail** generado en `https://myaccount.google.com/apppasswords` y guardado en Keychain: `security add-generic-password -s rufino-gmail-app-password -a val -w '<16-char>' -U`. Requiere 2FA activado.
+Setup del app password de Gmail compartido por los 3: ver sección **Outputs Fase 5** arriba.
 
 Pendientes (en fases sucesivas del roadmap de expansión, ver `proyectos/rufino/rufino-core/decisionRufinoExpansionPlanFases.md` en el vault de Val):
 - Fase 6: Dominios manuales (hardware, salud).
