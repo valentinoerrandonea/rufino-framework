@@ -31,16 +31,16 @@ class SemanticBackend:
         )
 
     def rebuild_index(self) -> None:
-        self._conn.execute("DELETE FROM notes")
-        for p in self.vault_root.rglob("*.md"):
-            text = p.read_text()
-            vec = self.embedder.embed(text)
-            rel = str(p.relative_to(self.vault_root))
-            self._conn.execute(
-                "INSERT OR REPLACE INTO notes VALUES (?, ?)",
-                (rel, json.dumps(vec)),
-            )
-        self._conn.commit()
+        with self._conn:
+            self._conn.execute("DELETE FROM notes")
+            for p in self.vault_root.rglob("*.md"):
+                text = p.read_text(errors="replace")
+                vec = self.embedder.embed(text)
+                rel = str(p.relative_to(self.vault_root))
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO notes VALUES (?, ?)",
+                    (rel, json.dumps(vec)),
+                )
 
     def search(self, query: str, *, k: int) -> list[NoteRef]:
         q_vec = self.embedder.embed(query)

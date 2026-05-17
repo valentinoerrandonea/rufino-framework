@@ -41,3 +41,17 @@ def test_invalid_mode_raises(tmp_vault: Path):
     ql = QueryLayer(vault_root=tmp_vault, embedder=FakeEmbeddings())
     with pytest.raises(ValueError):
         ql.search("x", mode="bogus")
+
+
+def test_run_matches_query_protocol(tmp_vault: Path):
+    """QueryLayer.run is the drop-in replacement for StubQueryLayer."""
+    from rufino.engine.process.context_injectors import QueryLayer as QueryProtocol
+
+    (tmp_vault / "hit.md").write_text("regresion")
+    ql = QueryLayer(vault_root=tmp_vault, embedder=FakeEmbeddings())
+    ql.rebuild_indices()
+
+    assert isinstance(ql.run("regresion"), list)
+    assert all(isinstance(x, str) for x in ql.run("regresion"))
+    # Structural Protocol compliance (no isinstance — runtime_checkable not declared)
+    _: QueryProtocol = ql  # noqa: F841 — type-check only

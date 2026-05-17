@@ -21,27 +21,27 @@ class GraphBackend:
         )
 
     def rebuild_index(self) -> None:
-        self._conn.execute("DELETE FROM triples")
-        for p in self.vault_root.rglob("*.md"):
-            text = p.read_text()
-            if not text.startswith("---\n"):
-                continue
-            try:
-                _, fm_block, _ = text.split("---\n", 2)
-            except ValueError:
-                continue
-            fm = yaml.safe_load(fm_block) or {}
-            triples = fm.get("triples", [])
-            if not isinstance(triples, list):
-                continue
-            rel_path = str(p.relative_to(self.vault_root))
-            for entry in triples:
-                if isinstance(entry, dict) and "r" in entry and "o" in entry:
-                    self._conn.execute(
-                        "INSERT OR IGNORE INTO triples VALUES (?, ?, ?)",
-                        (rel_path, entry["r"], entry["o"]),
-                    )
-        self._conn.commit()
+        with self._conn:
+            self._conn.execute("DELETE FROM triples")
+            for p in self.vault_root.rglob("*.md"):
+                text = p.read_text(errors="replace")
+                if not text.startswith("---\n"):
+                    continue
+                try:
+                    _, fm_block, _ = text.split("---\n", 2)
+                except ValueError:
+                    continue
+                fm = yaml.safe_load(fm_block) or {}
+                triples = fm.get("triples", [])
+                if not isinstance(triples, list):
+                    continue
+                rel_path = str(p.relative_to(self.vault_root))
+                for entry in triples:
+                    if isinstance(entry, dict) and "r" in entry and "o" in entry:
+                        self._conn.execute(
+                            "INSERT OR IGNORE INTO triples VALUES (?, ?, ?)",
+                            (rel_path, entry["r"], entry["o"]),
+                        )
 
     def traverse(
         self,
@@ -63,4 +63,4 @@ class GraphBackend:
                 (relation, node),
             )
             return [NoteRef(relative_path=row[0]) for row in cur.fetchall()]
-        return []
+        raise NotImplementedError("forward traversal deferred to v1.1")

@@ -40,6 +40,18 @@ def test_read_note_rejects_path_traversal(tmp_vault: Path):
         read_note(ql, relative_path="../etc/passwd")
 
 
+def test_read_note_rejects_symlink(tmp_vault: Path, tmp_path: Path):
+    """A symlink inside the vault pointing outside must not be readable."""
+    outside = tmp_path / "secret.txt"
+    outside.write_text("top secret")
+    link = tmp_vault / "innocent.md"
+    link.symlink_to(outside)
+
+    ql = _make_ql(tmp_vault)
+    with pytest.raises(ValueError, match="symlink"):
+        read_note(ql, relative_path="innocent.md")
+
+
 def test_vault_stats_reports_count(tmp_vault: Path):
     (tmp_vault / "a.md").write_text("x")
     (tmp_vault / "b.md").write_text("y")

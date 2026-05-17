@@ -21,6 +21,7 @@ class QueryLayer:
         self._graph = GraphBackend(vault_root=self.vault_root)
 
     def rebuild_indices(self) -> None:
+        # Lexical (ripgrep) is index-free, nothing to rebuild.
         self._sem.rebuild_index()
         self._graph.rebuild_index()
 
@@ -44,3 +45,7 @@ class QueryLayer:
         self, *, node: str, relation: str, depth: int, reverse: bool = False,
     ) -> list[NoteRef]:
         return self._graph.traverse(node=node, relation=relation, depth=depth, reverse=reverse)
+
+    def run(self, query_string: str) -> list[str]:
+        """Adapter for the QueryLayer Protocol used by context_injectors (Plan 3)."""
+        return [r.relative_path for r in self.search(query_string, mode="hybrid")]

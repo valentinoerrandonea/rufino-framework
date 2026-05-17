@@ -34,7 +34,7 @@ class LexicalBackend:
     def _python_fallback(self, query: str) -> list[NoteRef]:
         results: list[NoteRef] = []
         for p in self.vault_root.rglob("*.md"):
-            if query.lower() in p.read_text().lower():
+            if query.lower() in p.read_text(errors="replace").lower():
                 results.append(
                     NoteRef(relative_path=str(p.relative_to(self.vault_root)))
                 )

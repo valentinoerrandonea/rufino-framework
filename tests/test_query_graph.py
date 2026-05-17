@@ -23,4 +23,12 @@ def test_no_triples_returns_empty(tmp_vault: Path):
     (tmp_vault / "n.md").write_text("plain note no frontmatter")
     backend = GraphBackend(vault_root=tmp_vault)
     backend.rebuild_index()
-    assert backend.traverse(node="x", relation="r", depth=1) == []
+    assert backend.traverse(node="x", relation="r", depth=1, reverse=True) == []
+
+
+def test_forward_traversal_raises(tmp_vault: Path):
+    import pytest
+    backend = GraphBackend(vault_root=tmp_vault)
+    backend.rebuild_index()
+    with pytest.raises(NotImplementedError):
+        backend.traverse(node="x", relation="r", depth=1, reverse=False)

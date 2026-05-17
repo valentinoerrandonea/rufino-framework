@@ -19,13 +19,18 @@ def list_triples_for_node(
 
 
 def read_note(ql: QueryLayer, *, relative_path: str) -> str:
-    target = (ql.vault_root / relative_path).resolve()
+    raw = ql.vault_root / relative_path
+    if raw.is_symlink():
+        raise ValueError(f"Path {relative_path!r} is a symlink (not allowed)")
+    target = raw.resolve()
     vault_resolved = ql.vault_root.resolve()
     try:
         target.relative_to(vault_resolved)
     except ValueError:
         raise ValueError(f"Path {relative_path!r} resolves outside vault")
-    return target.read_text()
+    if not target.is_file():
+        raise ValueError(f"Path {relative_path!r} is not a regular file")
+    return target.read_text(errors="replace")
 
 
 def vault_stats(ql: QueryLayer) -> dict:

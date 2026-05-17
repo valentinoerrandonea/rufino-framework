@@ -136,7 +136,8 @@ def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
 
 @cli.command(name="query")
 @click.argument("query_string")
-@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--mode", default="hybrid", type=click.Choice(["lexical", "semantic", "hybrid"]))
 def query_cmd(query_string: str, vault_root: Path, mode: str) -> None:
     """Search the vault."""
@@ -149,7 +150,8 @@ def query_cmd(query_string: str, vault_root: Path, mode: str) -> None:
 
 
 @cli.command(name="mcp-server")
-@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path))
 def mcp_server_cmd(vault_root: Path) -> None:
     """Run the ask-rufino MCP server on stdio."""
     import asyncio
