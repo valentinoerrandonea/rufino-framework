@@ -106,15 +106,27 @@ def ingest_cmd(adapter_dir: Path, vault_root: Path, state_dir: Path) -> None:
         click.echo(f"  error: {err}", err=True)
 
 
+class _LexicalQueryAdapter:
+    """Adapter that exposes a `run(query_string)` method backed by the real
+    lexical query layer. Used by `rufino output` until the full hybrid layer
+    has a real embedder."""
+
+    def __init__(self, vault_root: Path) -> None:
+        self._ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
+
+    def run(self, query_string: str) -> list[str]:
+        return [r.relative_path for r in self._ql.search(query_string, mode="lexical")]
+
+
 @cli.command(name="output")
 @click.argument("adapter_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
 def output_cmd(adapter_dir: Path, vault_root: Path) -> None:
-    """Run an Output adapter once (uses stub Query layer in v1)."""
+    """Run an Output adapter once (lexical query layer; semantic deferred)."""
     channels = {"file": FileChannel(vault_root=vault_root)}
     result = dispatch_output(
         adapter_dir=adapter_dir,
-        query=StubQueryLayer(),
+        query=_LexicalQueryAdapter(vault_root),
         channels=channels,
         event_context={},
     )
