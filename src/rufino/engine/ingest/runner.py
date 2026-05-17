@@ -2,12 +2,22 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
-from rufino.engine.ingest.manifest import parse_ingest_manifest
+import yaml
+
+from rufino.engine.ingest.manifest import parse_ingest_manifest, IngestAdapterManifest
 from rufino.engine.ingest.cursor import CursorStore
 from rufino.engine.ingest.dedup import DedupStore
 from rufino.engine.ingest.fact_schema import validate_fact, FactSchemaError
 from rufino.engine.ingest.fetcher_loader import load_fetcher
+
+
+ProcessHook = Callable[[Path, Path, str], None]
+
+
+class IngestPathError(Exception):
+    """Raised when an adapter tries to write outside the vault root."""
 
 
 @dataclass
@@ -23,10 +33,12 @@ def run_ingest(
     adapter_dir: Path,
     vault_root: Path,
     rufino_state_dir: Path,
-    process_hook=None,
+    process_hook: ProcessHook | None = None,
 ) -> IngestResult:
     """Run an Ingest adapter. Dispatches to mode-specific subroutine."""
-    manifest = parse_ingest_manifest((adapter_dir / "manifest.yaml").read_text())
+    manifest = parse_ingest_manifest(
+        (adapter_dir / "manifest.yaml").read_text(encoding="utf-8")
+    )
 
     if manifest.output_mode == "emit_fact":
         return _run_emit_fact(
@@ -50,12 +62,32 @@ def _render_dest(template: str, *, fact: dict, today: str) -> str:
     return (
         template
         .replace("<YYYY-MM-DD>", today)
-        .replace("<id>", fact["id"])
+        .replace("<id>", str(fact["id"]))
     )
 
 
+def _safe_join(vault_root: Path, relative: str) -> Path:
+    """Resolve `relative` under `vault_root`, refusing path traversal."""
+    target = (vault_root / relative).resolve()
+    root = vault_root.resolve()
+    if not target.is_relative_to(root):
+        raise IngestPathError(f"Path escapes vault: {relative!r}")
+    return target
+
+
+def _now_iso_utc() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _serialize_fact_md(*, source: str, fact_id: str, fact: dict) -> str:
+    """YAML-frontmatter only note body. Uses yaml.safe_dump to handle any value safely."""
+    frontmatter = {"source": source, "fact_id": fact_id, **fact}
+    dumped = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
+    return f"---\n{dumped}---\n"
+
+
 def _run_emit_fact(
-    *, adapter_dir: Path, manifest, vault_root: Path, rufino_state_dir: Path,
+    *, adapter_dir: Path, manifest: IngestAdapterManifest, vault_root: Path, rufino_state_dir: Path,
 ) -> IngestResult:
     fetcher = load_fetcher(adapter_dir)
     cursors = CursorStore(rufino_state_dir / "cursors.json")
@@ -81,24 +113,39 @@ def _run_emit_fact(
             skipped += 1
             continue
 
-        fact_path = vault_root / _render_dest(manifest.destination_facts, fact=fact, today=today)
-        raw_path = vault_root / _render_dest(manifest.destination_raw, fact=fact, today=today)
+        try:
+            fact_path = _safe_join(
+                vault_root, _render_dest(manifest.destination_facts, fact=fact, today=today)
+            )
+        except IngestPathError as e:
+            errors.append(str(e))
+            continue
 
         fact_path.parent.mkdir(parents=True, exist_ok=True)
-        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        fact_md = _serialize_fact_md(source=manifest.source_name, fact_id=fact_id, fact=fact)
+        fact_path.write_text(fact_md, encoding="utf-8")
 
-        fact_md = (
-            f"---\nsource: {manifest.source_name}\nfact_id: {fact_id}\n"
-            + "\n".join(f"{k}: {v!r}" for k, v in fact.items())
-            + "\n---\n"
-        )
-        fact_path.write_text(fact_md)
-        raw_path.write_text(json.dumps(fact, indent=2))
+        if manifest.destination_raw:
+            try:
+                raw_path = _safe_join(
+                    vault_root, _render_dest(manifest.destination_raw, fact=fact, today=today)
+                )
+            except IngestPathError as e:
+                errors.append(str(e))
+                continue
+            raw_path.parent.mkdir(parents=True, exist_ok=True)
+            raw_path.write_text(json.dumps(fact, indent=2), encoding="utf-8")
 
+        # write-then-mark: a crash here re-emits on next run (overwrites same path).
+        # The reverse (mark first) would silently drop the fact. Atomic write+mark
+        # is a follow-up — for now we accept the duplicate-write risk.
         dedup.mark_seen(source=manifest.source_name, fact_id=fact_id)
         emitted += 1
 
-    cursors.set(manifest.adapter_name, datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+    # Only advance cursor when the batch was clean — otherwise a failed fact
+    # whose timestamp is past `since` would be unrecoverable.
+    if not errors:
+        cursors.set(manifest.adapter_name, _now_iso_utc())
 
     return IngestResult(
         adapter_name=manifest.adapter_name,
@@ -109,7 +156,12 @@ def _run_emit_fact(
 
 
 def _run_import_raw(
-    *, adapter_dir: Path, manifest, vault_root: Path, rufino_state_dir: Path, process_hook,
+    *,
+    adapter_dir: Path,
+    manifest: IngestAdapterManifest,
+    vault_root: Path,
+    rufino_state_dir: Path,
+    process_hook: ProcessHook | None,
 ) -> IngestResult:
     fetcher = load_fetcher(adapter_dir)
     cursors = CursorStore(rufino_state_dir / "cursors.json")
@@ -117,21 +169,29 @@ def _run_import_raw(
     since = cursors.get(manifest.adapter_name)
     items = fetcher(since=since)
 
-    inbox = vault_root / manifest.target_inbox
+    inbox = (vault_root / manifest.target_inbox).resolve()
+    if not inbox.is_relative_to(vault_root.resolve()):
+        raise IngestPathError(f"target_inbox escapes vault: {manifest.target_inbox!r}")
     inbox.mkdir(parents=True, exist_ok=True)
     emitted = 0
+    errors: list[str] = []
 
     for item in items:
-        target = inbox / item["filename"]
-        target.write_text(item["content"])
+        try:
+            target = _safe_join(inbox, item["filename"])
+        except IngestPathError as e:
+            errors.append(str(e))
+            continue
+        target.write_text(item["content"], encoding="utf-8")
         emitted += 1
         if manifest.trigger == "immediate" and process_hook is not None:
             process_hook(target, vault_root, manifest.process_with)
 
-    cursors.set(manifest.adapter_name, datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
+    if not errors:
+        cursors.set(manifest.adapter_name, _now_iso_utc())
     return IngestResult(
         adapter_name=manifest.adapter_name,
         facts_emitted=emitted,
         facts_skipped=0,
-        errors=[],
+        errors=errors,
     )

@@ -26,3 +26,8 @@ def test_wrong_type_raises():
 def test_enum_violation_raises():
     with pytest.raises(FactSchemaError, match="enum"):
         validate_fact({"id": "x", "monto": 1, "moneda": "BTC"}, schema=SCHEMA)
+
+
+def test_unknown_type_spec_raises():
+    with pytest.raises(FactSchemaError, match="unknown type spec"):
+        validate_fact({"x": "y"}, schema={"x": "numbr"})

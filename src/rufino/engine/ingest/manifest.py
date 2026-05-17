@@ -19,7 +19,7 @@ class IngestAdapterManifest:
     auth: dict[str, Any]
     output_mode: str
     emits: tuple[str, ...] = ()
-    fact_schema: dict[str, Any] = None  # type: ignore
+    fact_schema: dict[str, Any] | None = None
     destination_facts: str | None = None
     destination_raw: str | None = None
     dedup_by: str | None = None

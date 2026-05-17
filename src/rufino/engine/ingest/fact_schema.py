@@ -32,4 +32,4 @@ def _check_type(field: str, value: Any, type_spec: str) -> None:
         if value not in options:
             raise FactSchemaError(f"{field}: expected enum {options}, got {value!r}")
     else:
-        pass
+        raise FactSchemaError(f"{field}: unknown type spec {type_spec!r}")

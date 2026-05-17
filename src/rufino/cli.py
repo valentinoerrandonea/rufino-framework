@@ -79,3 +79,5 @@ def ingest_cmd(adapter_dir: Path, vault_root: Path, state_dir: Path) -> None:
         f"adapter={result.adapter_name} emitted={result.facts_emitted} "
         f"skipped={result.facts_skipped} errors={len(result.errors)}"
     )
+    for err in result.errors:
+        click.echo(f"  error: {err}", err=True)
