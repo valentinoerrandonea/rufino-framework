@@ -1,0 +1,13 @@
+adapter_name: memory-loop-facultad
+vertical_name: facultad
+
+entity_types: [apunte_clase, materia, profesor]
+
+note_destinations:
+  apunte_clase: "apuntes/<materia>/<YYYY-MM-DD>-<slug>.md"
+  materia: "materias/<slug>.md"
+  profesor: "profesores/<slug>.md"
+
+rule_extensions:
+  - ./rules/facultad-vocabulary.md
+  - ./rules/facultad-conventions.md

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Protocol, Any
+from typing import Protocol, Any, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -39,6 +39,7 @@ class ValidationResult:
         return "\n".join(lines)
 
 
+@runtime_checkable
 class Validator(Protocol):
     """Common interface for shape-specific manifest validators.
 
