@@ -4,6 +4,7 @@ import click
 
 from rufino.version import VERSION
 from rufino.engine.memory_loop.installer import install_memory_loop, InstallationError
+from rufino.engine.process.dispatcher import process_note as _process_note
 from rufino.runtime.transaction_log import TransactionLog
 
 
@@ -41,3 +42,22 @@ def install_memory_loop_cmd(adapter_dir: Path, vault_path: Path, claude_home: Pa
         click.echo(f"Error: {e}", err=True)
         raise click.exceptions.Exit(code=1)
     click.echo(f"Adapter '{adapter_dir.name}' installed to {claude_home}")
+
+
+@cli.command(name="process")
+@click.argument("note_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path),
+              help="Vault root path")
+@click.option("--mode", default="light", type=click.Choice(["light", "full", "lint"]))
+@click.option("--adapter-dir", type=click.Path(path_type=Path),
+              help="Required for --mode full")
+def process_cmd(note_path: Path, vault_root: Path, mode: str, adapter_dir: Path | None) -> None:
+    """Process a single note. v1 supports light mode without an adapter."""
+    if mode == "full" and adapter_dir is None:
+        click.echo("Error: --adapter-dir required for --mode full", err=True)
+        raise click.exceptions.Exit(code=1)
+    if mode == "full":
+        click.echo("Error: full mode CLI wiring lands in plan 7 (needs real LLM + Query)", err=True)
+        raise click.exceptions.Exit(code=2)
+    result = _process_note(note_path=note_path, vault_root=vault_root, mode=mode)
+    click.echo(f"{result.message}")
