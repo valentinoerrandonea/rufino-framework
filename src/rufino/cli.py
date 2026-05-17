@@ -130,18 +130,52 @@ def output_cmd(adapter_dir: Path, vault_root: Path) -> None:
 def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
     """Poll questions/ for answered questions and dispatch their callbacks.
 
-    In v1, the handler is a no-op placeholder. Real Process adapter resumption
-    lands in plan 8 (Wizard wires QALoopAPI into the Process dispatcher).
+    Real adapter resumption is not wired yet. To avoid consuming user answers
+    (which `poll_and_dispatch` would archive on a no-op success), the handler
+    raises — `poll_and_dispatch` catches it and leaves the callback + question
+    intact for the next poll. If any pending answer exists, the CLI exits 2.
     """
-    def _noop_handler(*, adapter_name, adapter_state, answer):
-        click.echo(f"would resume {adapter_name} with answer={answer!r}")
+    class _ResumptionNotImplemented(Exception):
+        pass
+
+    def _unimplemented_handler(*, adapter_name, adapter_state, answer):
+        raise _ResumptionNotImplemented(
+            f"qa-poll resumption not wired (adapter={adapter_name!r})"
+        )
 
     dispatched = poll_and_dispatch(
         vault_root=vault_root,
         state_dir=state_dir,
-        handler=_noop_handler,
+        handler=_unimplemented_handler,
     )
+    # dispatched is always 0 here (handler always raises); check whether
+    # any pending answers existed by inspecting `questions/`.
+    pending_answered = False
+    questions_dir = vault_root / "questions"
+    if questions_dir.exists():
+        for p in questions_dir.glob("*.md"):
+            if not p.is_file():
+                continue
+            text = p.read_text(encoding="utf-8", errors="replace")
+            # Heuristic: an answer line with non-empty value (any non-whitespace
+            # char after `answer:`) means the user filled it in.
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("answer:") and stripped not in (
+                    "answer:", "answer: "
+                ):
+                    pending_answered = True
+                    break
+            if pending_answered:
+                break
+
     click.echo(f"dispatched={dispatched}")
+    if pending_answered:
+        click.echo(
+            "Error: qa-poll resumption is not wired yet; answers preserved for retry.",
+            err=True,
+        )
+        raise click.exceptions.Exit(code=2)
 
 
 @cli.command(name="query")
