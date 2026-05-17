@@ -20,10 +20,16 @@ from rufino.wizard.system_prompt_assembler import build_system_prompt
 
 
 class _NoopEmbeddings:
-    """Placeholder embedder for v1. Real Ollama wiring lands in plan 9 installer."""
+    """Placeholder embedder. Real Ollama wiring is deferred; meanwhile any
+    semantic-mode call raises loudly rather than returning misleading zeros.
+    Lexical mode does not touch the embedder, so it remains fully functional.
+    """
 
     def embed(self, text: str) -> list[float]:
-        return [0.0] * 8
+        raise NotImplementedError(
+            "semantic mode requires a real embedder; "
+            "placeholder _NoopEmbeddings cannot embed text"
+        )
 
 
 @click.group()
@@ -145,9 +151,15 @@ def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
 @click.option("--mode", default="hybrid", type=click.Choice(["lexical", "semantic", "hybrid"]))
 def query_cmd(query_string: str, vault_root: Path, mode: str) -> None:
     """Search the vault."""
+    if mode in ("semantic", "hybrid"):
+        click.echo(
+            f"Error: --mode={mode} requires a real embedder; "
+            f"only --mode=lexical is wired in this release "
+            f"(placeholder embedder until Ollama integration lands).",
+            err=True,
+        )
+        raise click.exceptions.Exit(code=2)
     ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
-    if mode != "lexical":
-        ql.rebuild_indices()
     results = ql.search(query_string, mode=mode)
     for r in results:
         click.echo(r.relative_path)
