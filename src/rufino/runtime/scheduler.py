@@ -1,5 +1,9 @@
+import re
 from dataclasses import dataclass
 from typing import Protocol
+from xml.sax.saxutils import escape as _xml_escape
+
+_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 @dataclass(frozen=True)
@@ -15,6 +19,10 @@ class ScheduledJob:
                 raise ValueError(
                     f"ScheduledJob.{field_name} must not contain newlines: {value!r}"
                 )
+        if not _NAME_RE.match(self.name):
+            raise ValueError(
+                f"ScheduledJob.name must match {_NAME_RE.pattern}, got {self.name!r}"
+            )
         parts = self.cron.split()
         if len(parts) != 5:
             raise ValueError(
@@ -42,17 +50,19 @@ class LaunchdScheduler:
             raise ValueError(
                 f"cron out of range: hour={h} minute={m} (got {job.cron!r})"
             )
+        name_xml = _xml_escape(job.name)
+        command_xml = _xml_escape(job.command)
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>{job.name}</string>
+    <string>{name_xml}</string>
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>{job.command}</string>
+        <string>{command_xml}</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict>

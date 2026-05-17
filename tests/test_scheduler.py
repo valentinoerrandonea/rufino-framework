@@ -71,3 +71,25 @@ def test_launchd_rejects_out_of_range_minute():
     job = ScheduledJob(name="ok", cron="60 0 * * *", command="echo")
     with pytest.raises(ValueError, match="out of range"):
         LaunchdScheduler().render(job)
+
+
+def test_scheduler_escapes_xml_special_chars_in_command():
+    import xml.etree.ElementTree as ET
+    from rufino.runtime.scheduler import LaunchdScheduler, ScheduledJob
+    job = ScheduledJob(
+        name="com.example.test",
+        command="echo 'a < b && c > d'",
+        cron="0 22 * * *",
+    )
+    plist = LaunchdScheduler().render(job)
+    root = ET.fromstring(plist)  # must parse cleanly
+    assert root is not None
+    assert "a < b && c > d" not in plist  # raw must not appear
+    assert "a &lt; b &amp;&amp; c &gt; d" in plist
+
+
+def test_scheduler_rejects_bad_name():
+    import pytest
+    from rufino.runtime.scheduler import ScheduledJob
+    with pytest.raises(ValueError):
+        ScheduledJob(name="../../etc/passwd", command="x", cron="0 22 * * *")
