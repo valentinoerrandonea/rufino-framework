@@ -36,8 +36,41 @@ def _delete(target: str) -> None:
         p.unlink()
 
 
+def _rmdir_if_empty(target: str) -> None:
+    p = Path(target)
+    if p.exists() and p.is_dir() and not any(p.iterdir()):
+        p.rmdir()
+
+
+def _keychain_delete(target: str) -> None:
+    """Delete a keychain entry. target encodes 'service\x00account'."""
+    try:
+        import keyring
+    except ImportError:
+        return
+    if "\x00" not in target:
+        return
+    service, account = target.split("\x00", 1)
+    try:
+        keyring.delete_password(service, account)
+    except Exception:
+        pass
+
+
+def _plist_uninstall(target: str) -> None:
+    """Unload + remove a launchd plist. target is the absolute plist path."""
+    import subprocess
+    p = Path(target)
+    if p.exists():
+        subprocess.run(["launchctl", "unload", str(p)], check=False)
+        p.unlink()
+
+
 register_rollback("rmdir", _rmdir)
 register_rollback("delete", _delete)
+register_rollback("rmdir_if_empty", _rmdir_if_empty)
+register_rollback("keychain_delete", _keychain_delete)
+register_rollback("plist_uninstall", _plist_uninstall)
 
 
 class TransactionLog:
@@ -48,6 +81,11 @@ class TransactionLog:
         self._entries: list[LogEntry] = []
 
     def record(self, entry: LogEntry) -> None:
+        if entry.rollback not in _ROLLBACK_REGISTRY:
+            raise ValueError(
+                f"unknown rollback handler {entry.rollback!r}; "
+                f"call register_rollback() first"
+            )
         self._entries.append(entry)
         self._flush()
 
