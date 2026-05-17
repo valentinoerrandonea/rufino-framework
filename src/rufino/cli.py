@@ -152,12 +152,16 @@ def query_cmd(query_string: str, vault_root: Path, mode: str) -> None:
 @cli.command(name="mcp-server")
 @click.option("--vault", "vault_root", required=True,
               type=click.Path(exists=True, file_okay=False, path_type=Path))
-def mcp_server_cmd(vault_root: Path) -> None:
+@click.option("--rebuild/--no-rebuild", default=True,
+              help="Rebuild semantic+graph indices on startup (default: enabled)")
+def mcp_server_cmd(vault_root: Path, rebuild: bool) -> None:
     """Run the ask-rufino MCP server on stdio."""
     import asyncio
     from mcp.server.stdio import stdio_server
 
     ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
+    if rebuild:
+        ql.rebuild_indices()
     server = build_server(ql)
 
     async def _main() -> None:

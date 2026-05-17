@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from rufino.engine.query.filters import iter_user_notes
 from rufino.engine.query.note_ref import NoteRef
 
 
@@ -33,8 +34,8 @@ class SemanticBackend:
     def rebuild_index(self) -> None:
         with self._conn:
             self._conn.execute("DELETE FROM notes")
-            for p in self.vault_root.rglob("*.md"):
-                text = p.read_text(errors="replace")
+            for p in iter_user_notes(self.vault_root):
+                text = p.read_text(encoding="utf-8", errors="replace")
                 vec = self.embedder.embed(text)
                 rel = str(p.relative_to(self.vault_root))
                 self._conn.execute(

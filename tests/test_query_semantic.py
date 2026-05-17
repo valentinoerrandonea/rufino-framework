@@ -28,3 +28,18 @@ def test_empty_vault_returns_empty(tmp_vault: Path):
     backend = SemanticBackend(vault_root=tmp_vault, embedder=FakeEmbeddings())
     backend.rebuild_index()
     assert backend.search("anything", k=5) == []
+
+
+def test_semantic_rebuild_excludes_meta_and_dot_dirs(tmp_vault: Path):
+    """Notes inside _meta/, .obsidian/, .git/ must not be indexed."""
+    (tmp_vault / "real.md").write_text("user note")
+    (tmp_vault / "_meta").mkdir()
+    (tmp_vault / "_meta" / "system.md").write_text("system note")
+    (tmp_vault / ".obsidian").mkdir()
+    (tmp_vault / ".obsidian" / "tpl.md").write_text("template")
+
+    backend = SemanticBackend(vault_root=tmp_vault, embedder=FakeEmbeddings())
+    backend.rebuild_index()
+    results = backend.search("anything", k=10)
+    paths = sorted(r.relative_path for r in results)
+    assert paths == ["real.md"]

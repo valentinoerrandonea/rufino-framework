@@ -107,3 +107,18 @@ def test_read_note_raises_on_non_utf8(tmp_vault: Path):
     ql = _make_ql(tmp_vault)
     with pytest.raises(ValueError, match="UTF-8"):
         read_note(ql, relative_path="bin.md")
+
+
+def test_search_vault_excludes_meta_and_dot_dirs(tmp_vault: Path):
+    """search_vault must not return system-dir notes regardless of mode."""
+    (tmp_vault / "real.md").write_text("regresion logistica")
+    (tmp_vault / "_meta").mkdir()
+    (tmp_vault / "_meta" / "sys.md").write_text("regresion logistica")
+    (tmp_vault / ".obsidian").mkdir()
+    (tmp_vault / ".obsidian" / "tpl.md").write_text("regresion logistica")
+
+    ql = _make_ql(tmp_vault)
+    for mode in ("lexical", "semantic", "hybrid"):
+        results = search_vault(ql, query="regresion", mode=mode)
+        assert "_meta/sys.md" not in results, f"system dir leaked in mode={mode}"
+        assert ".obsidian/tpl.md" not in results, f"system dir leaked in mode={mode}"

@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import yaml
 
+from rufino.engine.query.filters import iter_user_notes
 from rufino.engine.query.note_ref import NoteRef
 
 
@@ -23,8 +24,8 @@ class GraphBackend:
     def rebuild_index(self) -> None:
         with self._conn:
             self._conn.execute("DELETE FROM triples")
-            for p in self.vault_root.rglob("*.md"):
-                text = p.read_text(errors="replace")
+            for p in iter_user_notes(self.vault_root):
+                text = p.read_text(encoding="utf-8", errors="replace")
                 if not text.startswith("---\n"):
                     continue
                 try:
@@ -37,10 +38,14 @@ class GraphBackend:
                     continue
                 rel_path = str(p.relative_to(self.vault_root))
                 for entry in triples:
-                    if isinstance(entry, dict) and "r" in entry and "o" in entry:
+                    if (
+                        isinstance(entry, dict)
+                        and isinstance(entry.get("r"), str)
+                        and entry.get("o") is not None
+                    ):
                         self._conn.execute(
                             "INSERT OR IGNORE INTO triples VALUES (?, ?, ?)",
-                            (rel_path, entry["r"], entry["o"]),
+                            (rel_path, entry["r"], str(entry["o"])),
                         )
 
     def traverse(
