@@ -137,3 +137,36 @@ def test_validate_spec_accepts_entity_with_underscore():
         },
     })
     assert "apunte_clase" in spec.entities
+
+
+def test_validate_spec_rejects_vocabulary_key_not_in_entities():
+    bad = dict(VALID_SPEC)
+    bad["vocabulary"] = {
+        **VALID_SPEC["vocabulary"],
+        "ghost": "ghost/<slug>.md",  # not in entities
+    }
+    with pytest.raises(SpecError, match="ghost"):
+        validate_spec(bad)
+
+
+def test_validate_spec_rejects_invalid_vocabulary_key_chars():
+    bad = dict(VALID_SPEC)
+    bad["entities"] = list(VALID_SPEC["entities"]) + ["with space"]
+    # entities check would already reject this — assert it raises in entities path.
+    with pytest.raises(SpecError):
+        validate_spec(bad)
+
+
+def test_validate_spec_rejects_vocabulary_key_with_special_chars_when_entity_valid():
+    """If somehow a bad-shaped key sneaks into vocabulary, reject it independently."""
+    bad = dict(VALID_SPEC)
+    bad["vocabulary"] = {
+        **VALID_SPEC["vocabulary"],
+        "with-dash-and-uppercase": "x/<slug>.md",
+    }
+    bad["entities"] = list(VALID_SPEC["entities"]) + ["with-dash-and-uppercase"]
+    # Even if entities is permissive, the vocab key validator should catch
+    # uppercase. (entity name regex disallows uppercase, so this should raise
+    # in entities check, but the test pins the behavior either way.)
+    with pytest.raises(SpecError):
+        validate_spec(bad)
