@@ -70,3 +70,26 @@ def test_mark_answered_moves_file(tmp_vault: Path):
 
     assert not (qdir / "q1.md").exists()
     assert (qdir / "answered" / "q1.md").exists()
+
+
+def test_write_question_is_atomic(tmp_path, monkeypatch):
+    """A crash mid-write must leave the original (or no file), never half-written."""
+    from rufino.engine.qa.store import QuestionStore
+    store = QuestionStore(tmp_path)
+    store.write_question(slug="q1", template_name="t", body="original")
+
+    # Patch Path.replace to raise so the staged tmp does not corrupt the real file.
+    real_replace = type(tmp_path).replace
+    def boom(self, target):
+        raise OSError("simulated rename failure")
+    monkeypatch.setattr(type(tmp_path), "replace", boom)
+    try:
+        store.write_question(slug="q1", template_name="t", body="new content")
+    except OSError:
+        pass
+    monkeypatch.setattr(type(tmp_path), "replace", real_replace)
+
+    # Original content intact.
+    assert "original" in (tmp_path / "q1.md").read_text()
+    # No stale .tmp.
+    assert not list(tmp_path.glob("*.tmp"))
