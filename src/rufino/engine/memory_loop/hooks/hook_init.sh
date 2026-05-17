@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Rufino Memory loop — init hook
-# Substituted at install time:
-#   __VAULT_PATH__       — absolute path to user's vault
-#   __VERTICAL_NAME__    — name of the vertical (e.g. "facultad")
-#   __RULES_CONCAT__     — content of all rule_extensions concatenated
+# Rufino Memory loop — init hook (rendered at install time)
 
 set -euo pipefail
 
