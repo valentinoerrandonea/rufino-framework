@@ -9,6 +9,7 @@ from rufino.engine.ingest.runner import run_ingest
 from rufino.engine.output.dispatcher import dispatch_output
 from rufino.engine.output.channels.file_channel import FileChannel
 from rufino.engine.process.context_injectors import StubQueryLayer
+from rufino.engine.qa.worker import poll_and_dispatch
 from rufino.runtime.transaction_log import TransactionLog
 
 
@@ -102,3 +103,23 @@ def output_cmd(adapter_dir: Path, vault_root: Path) -> None:
         f"adapter={result.adapter_name} deliveries={result.deliveries} "
         f"errors={len(result.errors)}"
     )
+
+
+@cli.command(name="qa-poll")
+@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
+@click.option("--state-dir", "state_dir", required=True, type=click.Path(path_type=Path))
+def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
+    """Poll questions/ for answered questions and dispatch their callbacks.
+
+    In v1, the handler is a no-op placeholder. Real Process adapter resumption
+    lands in plan 8 (Wizard wires QALoopAPI into the Process dispatcher).
+    """
+    def _noop_handler(*, adapter_name, adapter_state, answer):
+        click.echo(f"would resume {adapter_name} with answer={answer!r}")
+
+    dispatched = poll_and_dispatch(
+        vault_root=vault_root,
+        state_dir=state_dir,
+        handler=_noop_handler,
+    )
+    click.echo(f"dispatched={dispatched}")
