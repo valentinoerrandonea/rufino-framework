@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from rufino.engine.ingest.manifest import parse_ingest_manifest
@@ -64,7 +64,7 @@ def _run_emit_fact(
     since = cursors.get(manifest.adapter_name)
     facts = fetcher(since=since)
 
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     emitted = 0
     skipped = 0
     errors: list[str] = []
@@ -98,7 +98,7 @@ def _run_emit_fact(
         dedup.mark_seen(source=manifest.source_name, fact_id=fact_id)
         emitted += 1
 
-    cursors.set(manifest.adapter_name, datetime.utcnow().isoformat() + "Z")
+    cursors.set(manifest.adapter_name, datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
 
     return IngestResult(
         adapter_name=manifest.adapter_name,
@@ -128,7 +128,7 @@ def _run_import_raw(
         if manifest.trigger == "immediate" and process_hook is not None:
             process_hook(target, vault_root, manifest.process_with)
 
-    cursors.set(manifest.adapter_name, datetime.utcnow().isoformat() + "Z")
+    cursors.set(manifest.adapter_name, datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
     return IngestResult(
         adapter_name=manifest.adapter_name,
         facts_emitted=emitted,
