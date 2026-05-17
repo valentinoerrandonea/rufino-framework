@@ -125,6 +125,13 @@ def materialize(
         if tx_log is not None:
             try:
                 tx_log.rollback()
+                # Clean the now-empty log file so rmdir_if_empty handlers
+                # registered for parent dirs (e.g. state_dir) can succeed.
+                log_path = state_dir / f"materialize-{spec.vertical_name}.json"
+                if log_path.exists():
+                    log_path.unlink()
+                if not state_dir_existed_before and state_dir.exists() and not any(state_dir.iterdir()):
+                    state_dir.rmdir()
             except Exception as rb_err:
                 errors.append(f"Rollback also failed: {rb_err}")
         return MaterializationResult(success=False, vault_path=vault_root, errors=errors)
