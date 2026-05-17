@@ -6,7 +6,8 @@ def test_version_command():
     runner = CliRunner()
     result = runner.invoke(cli, ["version"])
     assert result.exit_code == 0
-    assert "0.0.1" in result.output
+    from rufino.version import VERSION
+    assert VERSION in result.output
 
 
 def test_help_lists_version():

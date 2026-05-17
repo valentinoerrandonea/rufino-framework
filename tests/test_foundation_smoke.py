@@ -11,7 +11,7 @@ from rufino.runtime.validator_base import ValidationResult, ValidationError
 
 def test_foundation_modules_compose(tmp_path: Path):
     # 1. Framework version + helper version reported
-    assert __version__ == "0.0.1"
+    assert __version__ == "0.0.2"
     assert v1.HELPER_VERSION == "1.0.0"
 
     # 2. Scheduler renders a job (use Darwin path; doesn't actually install)
