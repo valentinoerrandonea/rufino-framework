@@ -43,15 +43,21 @@ def test_invalid_mode_raises(tmp_vault: Path):
         ql.search("x", mode="bogus")
 
 
-def test_run_matches_query_protocol(tmp_vault: Path):
-    """QueryLayer.run is the drop-in replacement for StubQueryLayer."""
-    from rufino.engine.process.context_injectors import QueryLayer as QueryProtocol
+def test_run_works_through_apply_context_injectors(tmp_vault: Path):
+    """QueryLayer.run is the drop-in replacement for StubQueryLayer.
 
-    (tmp_vault / "hit.md").write_text("regresion")
+    Validates behavior, not just type shape: feeds the real injector
+    pipeline so a renamed method or wrong return type breaks the test.
+    """
+    from rufino.engine.process.context_injectors import apply_context_injectors
+
+    (tmp_vault / "hit.md").write_text("regresion logistica")
     ql = QueryLayer(vault_root=tmp_vault, embedder=FakeEmbeddings())
     ql.rebuild_indices()
 
-    assert isinstance(ql.run("regresion"), list)
-    assert all(isinstance(x, str) for x in ql.run("regresion"))
-    # Structural Protocol compliance (no isinstance — runtime_checkable not declared)
-    _: QueryProtocol = ql  # noqa: F841 — type-check only
+    context = apply_context_injectors(
+        injectors=[{"name": "matches", "query": "<term>"}],
+        variables={"term": "regresion"},
+        query=ql,
+    )
+    assert "hit.md" in context["matches"]

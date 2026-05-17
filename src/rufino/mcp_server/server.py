@@ -61,8 +61,11 @@ def build_server(ql: QueryLayer):
         if name not in _HANDLERS:
             raise ValueError(f"Unknown tool: {name}")
         allowed = _ALLOWED_ARGS[name]
-        filtered = {k: v for k, v in (arguments or {}).items() if k in allowed}
-        result = _HANDLERS[name](ql, **filtered)
+        provided = set((arguments or {}).keys())
+        unknown = provided - allowed
+        if unknown:
+            raise ValueError(f"Unknown arguments for {name!r}: {sorted(unknown)}")
+        result = _HANDLERS[name](ql, **(arguments or {}))
 
         import json
         return [TextContent(type="text", text=json.dumps(result, indent=2))]

@@ -45,7 +45,10 @@ def test_read_note_rejects_symlink(tmp_vault: Path, tmp_path: Path):
     outside = tmp_path / "secret.txt"
     outside.write_text("top secret")
     link = tmp_vault / "innocent.md"
-    link.symlink_to(outside)
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("filesystem does not support symlinks")
 
     ql = _make_ql(tmp_vault)
     with pytest.raises(ValueError, match="symlink"):
@@ -77,3 +80,30 @@ def test_list_triples_for_node(tmp_vault: Path):
     ql = _make_ql(tmp_vault)
     results = list_triples_for_node(ql, node="ml-i", relation="tema-de", reverse=True)
     assert "c.md" in results
+
+
+def test_vault_stats_excludes_meta_and_dot_dirs(tmp_vault: Path):
+    """Notes inside _meta/, .obsidian/, .git/ must not be counted."""
+    (tmp_vault / "real.md").write_text("user note")
+    (tmp_vault / ".obsidian").mkdir()
+    (tmp_vault / ".obsidian" / "template.md").write_text("template")
+    (tmp_vault / "_meta").mkdir(exist_ok=True)
+    (tmp_vault / "_meta" / "indexed.md").write_text("system")
+    ql = _make_ql(tmp_vault)
+    assert vault_stats(ql)["note_count"] == 1
+
+
+def test_list_recent_notes_excludes_meta_and_dot_dirs(tmp_vault: Path):
+    (tmp_vault / "real.md").write_text("user")
+    (tmp_vault / ".obsidian").mkdir()
+    (tmp_vault / ".obsidian" / "x.md").write_text("template")
+    ql = _make_ql(tmp_vault)
+    assert list_recent_notes(ql, k=5) == ["real.md"]
+
+
+def test_read_note_raises_on_non_utf8(tmp_vault: Path):
+    """Binary or invalid UTF-8 must surface as ValueError, not silent garbage."""
+    (tmp_vault / "bin.md").write_bytes(b"\xff\xfe\x00invalid utf-8")
+    ql = _make_ql(tmp_vault)
+    with pytest.raises(ValueError, match="UTF-8"):
+        read_note(ql, relative_path="bin.md")
