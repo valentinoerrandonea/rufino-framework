@@ -114,8 +114,19 @@ def validate_spec(raw: dict[str, Any]) -> WizardSpec:
         raise SpecError(
             f"'vocabulary' must be a dict, got {type(vocabulary).__name__}"
         )
+    entities_set = set(entities)
+    extra = set(vocabulary.keys()) - entities_set
+    if extra:
+        raise SpecError(
+            f"vocabulary keys not declared as entities: {sorted(extra)}"
+        )
     validated_vocab: dict[str, str] = {}
     for entity, path in vocabulary.items():
+        if not isinstance(entity, str) or not _ENTITY_NAME_RE.match(entity):
+            raise SpecError(
+                f"invalid vocabulary key {entity!r}: must match "
+                f"{_ENTITY_NAME_RE.pattern!r}"
+            )
         validated_vocab[entity] = _validate_vocabulary_path(entity, path)
 
     return WizardSpec(

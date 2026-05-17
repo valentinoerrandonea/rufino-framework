@@ -14,7 +14,7 @@ class LexicalBackend:
         try:
             completed = subprocess.run(
                 [
-                    "rg", "-l", "--type", "md",
+                    "rg", "-l", "-F", "--type", "md",
                     *_ripgrep_exclude_globs(),
                     "--", query, str(self.vault_root),
                 ],
@@ -37,10 +37,11 @@ class LexicalBackend:
         ]
 
     def _python_fallback(self, query: str) -> list[NoteRef]:
+        """Case-sensitive substring match — aligns with ripgrep's -F + default
+        case-sensitivity so both code paths return identical result sets."""
         results: list[NoteRef] = []
-        needle = query.lower()
         for p in iter_user_notes(self.vault_root):
-            if needle in p.read_text(encoding="utf-8", errors="replace").lower():
+            if query in p.read_text(encoding="utf-8", errors="replace"):
                 results.append(
                     NoteRef(relative_path=str(p.relative_to(self.vault_root)))
                 )

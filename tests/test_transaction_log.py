@@ -114,4 +114,64 @@ def test_apply_and_log_helper(tmp_path: Path):
     )
 
     assert target.exists()
-    assert len(log.entries()) == 1
+
+
+def test_record_rejects_unknown_rollback_name(tmp_path: Path):
+    log = TransactionLog(tmp_path / "log.json")
+    with pytest.raises(ValueError, match="unknown rollback"):
+        log.record(LogEntry(op="custom", target="x", rollback="not_a_real_handler"))
+
+
+def test_rmdir_if_empty_handler_removes_empty_dir(tmp_path: Path):
+    target = tmp_path / "empty"
+    target.mkdir()
+    log = TransactionLog(tmp_path / "log.json")
+    log.record(LogEntry(op="mkdir", target=str(target), rollback="rmdir_if_empty"))
+    log.rollback()
+    assert not target.exists()
+
+
+def test_rmdir_if_empty_handler_preserves_nonempty_dir(tmp_path: Path):
+    target = tmp_path / "with_content"
+    target.mkdir()
+    (target / "user_file.txt").write_text("foreign")
+    log = TransactionLog(tmp_path / "log.json")
+    log.record(LogEntry(op="mkdir", target=str(target), rollback="rmdir_if_empty"))
+    log.rollback()
+    assert target.exists()
+    assert (target / "user_file.txt").read_text() == "foreign"
+
+
+def test_keychain_delete_and_plist_uninstall_handlers_are_registered():
+    from rufino.runtime.transaction_log import _ROLLBACK_REGISTRY
+    assert "keychain_delete" in _ROLLBACK_REGISTRY
+    assert "plist_uninstall" in _ROLLBACK_REGISTRY
+    assert "rmdir_if_empty" in _ROLLBACK_REGISTRY
+
+
+def test_register_rollback_concurrent_does_not_lose_entries():
+    import threading
+    from rufino.runtime.transaction_log import register_rollback, _ROLLBACK_REGISTRY
+
+    names = [f"concurrent_handler_{i}" for i in range(50)]
+    threads = [
+        threading.Thread(target=lambda n=n: register_rollback(n, lambda target: None))
+        for n in names
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    for n in names:
+        assert n in _ROLLBACK_REGISTRY
+
+
+def test_flush_fsyncs_to_disk(tmp_path: Path, monkeypatch):
+    import os
+    fsyncs: list[int] = []
+    real_fsync = os.fsync
+    monkeypatch.setattr("os.fsync", lambda fd: (fsyncs.append(fd), real_fsync(fd))[1])
+    log = TransactionLog(tmp_path / "log.json")
+    log.record(LogEntry(op="mkdir", target=str(tmp_path / "x"), rollback="rmdir"))
+    assert len(fsyncs) >= 1

@@ -14,9 +14,20 @@ def build_server(ql: QueryLayer):
         return [
             Tool(name="search_vault", description="Search the vault by query",
                  inputSchema={"type": "object",
-                              "properties": {"query": {"type": "string"},
-                                             "mode": {"type": "string"},
-                                             "k": {"type": "integer"}},
+                              "properties": {
+                                  "query": {"type": "string"},
+                                  "mode": {
+                                      "type": "string",
+                                      "enum": ["lexical", "semantic", "hybrid"],
+                                      "default": "hybrid",
+                                  },
+                                  "k": {
+                                      "type": "integer",
+                                      "minimum": 1,
+                                      "maximum": 100,
+                                      "default": 10,
+                                  },
+                              },
                               "required": ["query"]}),
             Tool(name="find_note", description="Find single best matching note",
                  inputSchema={"type": "object",
@@ -56,6 +67,10 @@ def build_server(ql: QueryLayer):
         "list_recent_notes": t.list_recent_notes,
     }
 
+    import logging
+    _log = logging.getLogger(__name__)
+    vault_path_str = str(ql.vault_root)
+
     @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if name not in _HANDLERS:
@@ -65,7 +80,13 @@ def build_server(ql: QueryLayer):
         unknown = provided - allowed
         if unknown:
             raise ValueError(f"Unknown arguments for {name!r}: {sorted(unknown)}")
-        result = _HANDLERS[name](ql, **(arguments or {}))
+        try:
+            result = _HANDLERS[name](ql, **(arguments or {}))
+        except Exception as e:
+            _log.exception("MCP tool %s raised", name)
+            # Redact any absolute vault path leaking through error messages.
+            msg = str(e).replace(vault_path_str, "<vault>")
+            raise ValueError(msg) from None
 
         import json
         return [TextContent(type="text", text=json.dumps(result, indent=2))]

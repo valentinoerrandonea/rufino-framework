@@ -49,7 +49,13 @@ class QuestionStore:
         )
         body_nl = body if body.endswith("\n") else body + "\n"
         content = f"---\n{name_yaml}answer:\n---\n{body_nl}"
-        path.write_text(content)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        try:
+            tmp.write_text(content)
+            tmp.replace(path)
+        finally:
+            if tmp.exists():
+                tmp.unlink()
         return slug
 
     def get_answer(self, slug: str) -> str | None:

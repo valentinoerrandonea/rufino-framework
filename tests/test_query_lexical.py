@@ -56,3 +56,19 @@ def test_lexical_handles_dash_prefix_query(tmp_vault: Path):
     results = backend.search("--help")
     paths = [r.relative_path for r in results]
     assert "a.md" in paths
+
+
+import pytest
+
+
+@pytest.mark.parametrize("query", ["c++", "a.b", "f(x)", "[draft]"])
+def test_lexical_handles_regex_metachars_as_literal(tmp_path: Path, query: str):
+    """Queries with regex special chars must match the literal text."""
+    from rufino.engine.query.lexical import LexicalBackend
+    vault = tmp_path / "v"
+    vault.mkdir()
+    (vault / "note.md").write_text(f"contains {query} literally", encoding="utf-8")
+    results = LexicalBackend(vault_root=vault).search(query)
+    assert any(r.relative_path.endswith("note.md") for r in results), (
+        f"query {query!r} did not match its literal occurrence"
+    )

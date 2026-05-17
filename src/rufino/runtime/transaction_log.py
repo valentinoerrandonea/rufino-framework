@@ -1,5 +1,7 @@
 import json
+import os
 import shutil
+import threading
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Callable, Any
@@ -18,10 +20,12 @@ class LogEntry:
 
 # Built-in rollback registry. Adapters/runtime can register more.
 _ROLLBACK_REGISTRY: dict[str, Callable[[str], None]] = {}
+_REGISTRY_LOCK = threading.Lock()
 
 
 def register_rollback(name: str, fn: Callable[[str], None]) -> None:
-    _ROLLBACK_REGISTRY[name] = fn
+    with _REGISTRY_LOCK:
+        _ROLLBACK_REGISTRY[name] = fn
 
 
 def _rmdir(target: str) -> None:
@@ -36,8 +40,41 @@ def _delete(target: str) -> None:
         p.unlink()
 
 
+def _rmdir_if_empty(target: str) -> None:
+    p = Path(target)
+    if p.exists() and p.is_dir() and not any(p.iterdir()):
+        p.rmdir()
+
+
+def _keychain_delete(target: str) -> None:
+    """Delete a keychain entry. target encodes 'service\x00account'."""
+    try:
+        import keyring
+    except ImportError:
+        return
+    if "\x00" not in target:
+        return
+    service, account = target.split("\x00", 1)
+    try:
+        keyring.delete_password(service, account)
+    except Exception:
+        pass
+
+
+def _plist_uninstall(target: str) -> None:
+    """Unload + remove a launchd plist. target is the absolute plist path."""
+    import subprocess
+    p = Path(target)
+    if p.exists():
+        subprocess.run(["launchctl", "unload", str(p)], check=False)
+        p.unlink()
+
+
 register_rollback("rmdir", _rmdir)
 register_rollback("delete", _delete)
+register_rollback("rmdir_if_empty", _rmdir_if_empty)
+register_rollback("keychain_delete", _keychain_delete)
+register_rollback("plist_uninstall", _plist_uninstall)
 
 
 class TransactionLog:
@@ -48,6 +85,11 @@ class TransactionLog:
         self._entries: list[LogEntry] = []
 
     def record(self, entry: LogEntry) -> None:
+        if entry.rollback not in _ROLLBACK_REGISTRY:
+            raise ValueError(
+                f"unknown rollback handler {entry.rollback!r}; "
+                f"call register_rollback() first"
+            )
         self._entries.append(entry)
         self._flush()
 
@@ -84,10 +126,24 @@ class TransactionLog:
         return log
 
     def _flush(self) -> None:
-        """Atomic write: stage to .tmp then rename."""
+        """Atomic write: stage to .tmp, fsync, rename, fsync parent dir."""
         tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        tmp.write_text(json.dumps([e.to_dict() for e in self._entries], indent=2))
+        data = json.dumps([e.to_dict() for e in self._entries], indent=2)
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
         tmp.replace(self._path)
+        try:
+            dir_fd = os.open(self._path.parent, os.O_RDONLY)
+        except OSError:
+            return
+        try:
+            os.fsync(dir_fd)
+        except OSError:
+            pass
+        finally:
+            os.close(dir_fd)
 
 
 def apply_and_log(

@@ -46,8 +46,17 @@ def materialize(
     tx_log: TransactionLog | None = None
 
     try:
+        state_dir_existed_before = state_dir.exists()
         state_dir.mkdir(parents=True, exist_ok=True)
         tx_log = TransactionLog(state_dir / f"materialize-{spec.vertical_name}.json")
+        if not state_dir_existed_before:
+            apply_and_log(
+                tx_log,
+                op="mkdir",
+                target=str(state_dir),
+                apply_fn=lambda: None,  # dir already exists; record for rollback
+                rollback="rmdir_if_empty",
+            )
 
         apply_and_log(
             tx_log, op="mkdir", target=str(vault_root),
@@ -59,6 +68,30 @@ def materialize(
             tx_log, op="mkdir", target=str(questions_dir),
             apply_fn=lambda: questions_dir.mkdir(),
             rollback="rmdir",
+        )
+        inbox_dir = vault_root / "inbox"
+        apply_and_log(
+            tx_log, op="mkdir", target=str(inbox_dir),
+            apply_fn=lambda: inbox_dir.mkdir(),
+            rollback="rmdir",
+        )
+        meta_dir = vault_root / "_meta"
+        apply_and_log(
+            tx_log, op="mkdir", target=str(meta_dir),
+            apply_fn=lambda: meta_dir.mkdir(),
+            rollback="rmdir",
+        )
+        tags_md = meta_dir / "_tags.md"
+        apply_and_log(
+            tx_log, op="write", target=str(tags_md),
+            apply_fn=lambda: tags_md.write_text("# Tags\n", encoding="utf-8"),
+            rollback="delete",
+        )
+        proc_log_md = meta_dir / "_processing-log.md"
+        apply_and_log(
+            tx_log, op="write", target=str(proc_log_md),
+            apply_fn=lambda: proc_log_md.write_text("# Processing log\n", encoding="utf-8"),
+            rollback="delete",
         )
         perfil = vault_root / "perfil.md"
         perfil_content = (
@@ -116,6 +149,13 @@ def materialize(
         if tx_log is not None:
             try:
                 tx_log.rollback()
+                # Clean the now-empty log file so rmdir_if_empty handlers
+                # registered for parent dirs (e.g. state_dir) can succeed.
+                log_path = state_dir / f"materialize-{spec.vertical_name}.json"
+                if log_path.exists():
+                    log_path.unlink()
+                if not state_dir_existed_before and state_dir.exists() and not any(state_dir.iterdir()):
+                    state_dir.rmdir()
             except Exception as rb_err:
                 errors.append(f"Rollback also failed: {rb_err}")
         return MaterializationResult(success=False, vault_path=vault_root, errors=errors)

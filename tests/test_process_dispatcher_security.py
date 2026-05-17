@@ -93,3 +93,41 @@ def test_source_preserved_when_index_update_fails(tmp_vault: Path, monkeypatch):
     # Source still there — user can re-run after fixing the underlying issue.
     assert note.exists(), "source note should not be removed when downstream steps fail"
     assert note.read_text() == "crude"
+
+
+def test_resolve_destination_returns_resolved_path(tmp_path):
+    """When the vault is accessed via a symlink, the returned path must be
+    the resolved one — not the raw concatenation with the symlink prefix."""
+    from rufino.engine.process.dispatcher import _resolve_destination
+    real_vault = tmp_path / "real_vault"
+    real_vault.mkdir()
+    vault = tmp_path / "vault_link"
+    vault.symlink_to(real_vault)
+
+    result = _resolve_destination(vault, "sub/note.md")
+    assert result == (real_vault / "sub/note.md").resolve()
+    assert result != vault / "sub/note.md"
+
+
+def test_resolve_destination_rejects_traversal_via_resolved_check(tmp_path):
+    from rufino.engine.process.dispatcher import (
+        _resolve_destination,
+        DestinationOutsideVaultError,
+    )
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    with pytest.raises(DestinationOutsideVaultError):
+        _resolve_destination(vault, "../escape.md")
+
+
+def test_note_body_with_context_placeholder_is_not_substituted():
+    """Body containing {{context.X}} must not consume context fields."""
+    from rufino.engine.process.dispatcher import _render_prompt
+    template = "Body: {{note_body}} | secret: {{context.api_key}}"
+    body = "harmless {{context.api_key}} text"  # injection attempt
+    context = {"api_key": "SHOULD_NOT_LEAK_VIA_BODY"}
+    rendered = _render_prompt(template=template, body=body, context=context)
+    # The body's literal {{context.api_key}} must remain literal.
+    assert "harmless {{context.api_key}} text" in rendered
+    # The template's own placeholder substitutes once.
+    assert "SHOULD_NOT_LEAK_VIA_BODY" in rendered

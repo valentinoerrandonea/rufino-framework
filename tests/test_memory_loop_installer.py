@@ -161,3 +161,24 @@ def test_mkdir_rollback_preserves_external_content(tmp_path: Path, tmp_vault: Pa
 
     assert not (claude_home / "hooks" / "rufino-memory-loop-init.sh").exists()
     assert foreign.exists(), "rollback wiped a file the installer did not create"
+
+
+def test_install_refuses_overwrite_when_hook_already_exists(tmp_path: Path, tmp_vault: Path):
+    """Re-installing must NOT clobber a prior install (rollback would destroy it)."""
+    claude_home = tmp_path / "claude_home"
+    (claude_home / "hooks").mkdir(parents=True)
+    (claude_home / "hooks" / "rufino-memory-loop-init.sh").write_text("# existing user content\n")
+
+    log = TransactionLog(tmp_path / "log.json")
+    with pytest.raises(InstallationError, match="already installed"):
+        install_memory_loop(
+            adapter_dir=FIXTURE,
+            claude_home=claude_home,
+            vault_path=tmp_vault,
+            log=log,
+        )
+
+    # Pre-existing content survived.
+    assert "existing user content" in (
+        claude_home / "hooks" / "rufino-memory-loop-init.sh"
+    ).read_text()

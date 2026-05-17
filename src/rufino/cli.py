@@ -20,10 +20,16 @@ from rufino.wizard.system_prompt_assembler import build_system_prompt
 
 
 class _NoopEmbeddings:
-    """Placeholder embedder for v1. Real Ollama wiring lands in plan 9 installer."""
+    """Placeholder embedder. Real Ollama wiring is deferred; meanwhile any
+    semantic-mode call raises loudly rather than returning misleading zeros.
+    Lexical mode does not touch the embedder, so it remains fully functional.
+    """
 
     def embed(self, text: str) -> list[float]:
-        return [0.0] * 8
+        raise NotImplementedError(
+            "semantic mode requires a real embedder; "
+            "placeholder _NoopEmbeddings cannot embed text"
+        )
 
 
 @click.group()
@@ -100,15 +106,27 @@ def ingest_cmd(adapter_dir: Path, vault_root: Path, state_dir: Path) -> None:
         click.echo(f"  error: {err}", err=True)
 
 
+class _LexicalQueryAdapter:
+    """Adapter that exposes a `run(query_string)` method backed by the real
+    lexical query layer. Used by `rufino output` until the full hybrid layer
+    has a real embedder."""
+
+    def __init__(self, vault_root: Path) -> None:
+        self._ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
+
+    def run(self, query_string: str) -> list[str]:
+        return [r.relative_path for r in self._ql.search(query_string, mode="lexical")]
+
+
 @cli.command(name="output")
 @click.argument("adapter_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
 def output_cmd(adapter_dir: Path, vault_root: Path) -> None:
-    """Run an Output adapter once (uses stub Query layer in v1)."""
+    """Run an Output adapter once (lexical query layer; semantic deferred)."""
     channels = {"file": FileChannel(vault_root=vault_root)}
     result = dispatch_output(
         adapter_dir=adapter_dir,
-        query=StubQueryLayer(),
+        query=_LexicalQueryAdapter(vault_root),
         channels=channels,
         event_context={},
     )
@@ -124,18 +142,52 @@ def output_cmd(adapter_dir: Path, vault_root: Path) -> None:
 def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
     """Poll questions/ for answered questions and dispatch their callbacks.
 
-    In v1, the handler is a no-op placeholder. Real Process adapter resumption
-    lands in plan 8 (Wizard wires QALoopAPI into the Process dispatcher).
+    Real adapter resumption is not wired yet. To avoid consuming user answers
+    (which `poll_and_dispatch` would archive on a no-op success), the handler
+    raises — `poll_and_dispatch` catches it and leaves the callback + question
+    intact for the next poll. If any pending answer exists, the CLI exits 2.
     """
-    def _noop_handler(*, adapter_name, adapter_state, answer):
-        click.echo(f"would resume {adapter_name} with answer={answer!r}")
+    class _ResumptionNotImplemented(Exception):
+        pass
+
+    def _unimplemented_handler(*, adapter_name, adapter_state, answer):
+        raise _ResumptionNotImplemented(
+            f"qa-poll resumption not wired (adapter={adapter_name!r})"
+        )
 
     dispatched = poll_and_dispatch(
         vault_root=vault_root,
         state_dir=state_dir,
-        handler=_noop_handler,
+        handler=_unimplemented_handler,
     )
+    # dispatched is always 0 here (handler always raises); check whether
+    # any pending answers existed by inspecting `questions/`.
+    pending_answered = False
+    questions_dir = vault_root / "questions"
+    if questions_dir.exists():
+        for p in questions_dir.glob("*.md"):
+            if not p.is_file():
+                continue
+            text = p.read_text(encoding="utf-8", errors="replace")
+            # Heuristic: an answer line with non-empty value (any non-whitespace
+            # char after `answer:`) means the user filled it in.
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("answer:") and stripped not in (
+                    "answer:", "answer: "
+                ):
+                    pending_answered = True
+                    break
+            if pending_answered:
+                break
+
     click.echo(f"dispatched={dispatched}")
+    if pending_answered:
+        click.echo(
+            "Error: qa-poll resumption is not wired yet; answers preserved for retry.",
+            err=True,
+        )
+        raise click.exceptions.Exit(code=2)
 
 
 @cli.command(name="query")
@@ -145,9 +197,15 @@ def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
 @click.option("--mode", default="hybrid", type=click.Choice(["lexical", "semantic", "hybrid"]))
 def query_cmd(query_string: str, vault_root: Path, mode: str) -> None:
     """Search the vault."""
+    if mode in ("semantic", "hybrid"):
+        click.echo(
+            f"Error: --mode={mode} requires a real embedder; "
+            f"only --mode=lexical is wired in this release "
+            f"(placeholder embedder until Ollama integration lands).",
+            err=True,
+        )
+        raise click.exceptions.Exit(code=2)
     ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
-    if mode != "lexical":
-        ql.rebuild_indices()
     results = ql.search(query_string, mode=mode)
     for r in results:
         click.echo(r.relative_path)
@@ -233,4 +291,18 @@ def materialize_cmd(
         for err in result.errors:
             click.echo(f"ERROR: {err}", err=True)
         raise click.exceptions.Exit(code=2)
+
+    # Register the ask-rufino MCP server in ~/.claude.json so Claude Code can
+    # query the freshly materialized vault. Uses sys.argv[0] (the rufino CLI
+    # that's currently running) so the command stays correct under pipx/venv.
+    import sys
+    from rufino.runtime.claude_config import register_mcp_server
+    claude_config = Path.home() / ".claude.json"
+    register_mcp_server(
+        claude_config_path=claude_config,
+        server_name="ask-rufino",
+        command=sys.argv[0] if sys.argv and sys.argv[0] else "rufino",
+        args=["mcp-server", "--vault", str(result.vault_path)],
+    )
     click.echo(f"Vault materialized at {result.vault_path}")
+    click.echo(f"Registered ask-rufino MCP at {claude_config}")

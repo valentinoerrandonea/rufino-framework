@@ -109,19 +109,27 @@ if command -v jq >/dev/null 2>&1; then
         if [ ! -f "$CLAUDE_JSON" ]; then
             echo "{}" > "$CLAUDE_JSON"
         fi
-        if ! jq -e '.mcpServers["ask-rufino"]' "$CLAUDE_JSON" >/dev/null 2>&1; then
-            echo "==> Registering MCP server ask-rufino in $CLAUDE_JSON"
+        # Always write/update: if RUFINO_VAULT changed between runs, the
+        # registered args must follow.
+        CURRENT_VAULT="$(jq -r '.mcpServers["ask-rufino"].args[2] // ""' "$CLAUDE_JSON" 2>/dev/null || echo "")"
+        if [ "$CURRENT_VAULT" = "$RUFINO_VAULT" ]; then
+            echo "    MCP server already registered for $RUFINO_VAULT (skip)"
+            MCP_REGISTERED="already"
+        else
+            if [ -n "$CURRENT_VAULT" ]; then
+                echo "==> Updating MCP server vault: $CURRENT_VAULT → $RUFINO_VAULT"
+            else
+                echo "==> Registering MCP server ask-rufino in $CLAUDE_JSON"
+            fi
             TMP="$(mktemp)"
             jq --arg cmd "$RUFINO_BIN" --arg vault "$RUFINO_VAULT" \
-               '.mcpServers["ask-rufino"] = {
+               '.mcpServers = (.mcpServers // {}) |
+                .mcpServers["ask-rufino"] = {
                     command: $cmd,
                     args: ["mcp-server", "--vault", $vault]
                 }' "$CLAUDE_JSON" > "$TMP"
             mv "$TMP" "$CLAUDE_JSON"
             MCP_REGISTERED="yes"
-        else
-            echo "    MCP server already registered (skip)"
-            MCP_REGISTERED="already"
         fi
     else
         echo "    MCP server NOT registered — RUFINO_VAULT not set or not a directory." >&2

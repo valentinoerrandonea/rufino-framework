@@ -137,3 +137,34 @@ def test_validate_spec_accepts_entity_with_underscore():
         },
     })
     assert "apunte_clase" in spec.entities
+
+
+def test_validate_spec_rejects_vocabulary_key_not_in_entities():
+    bad = dict(VALID_SPEC)
+    bad["vocabulary"] = {
+        **VALID_SPEC["vocabulary"],
+        "ghost": "ghost/<slug>.md",  # not in entities
+    }
+    with pytest.raises(SpecError, match="ghost"):
+        validate_spec(bad)
+
+
+def test_validate_spec_rejects_invalid_vocabulary_key_chars():
+    bad = dict(VALID_SPEC)
+    bad["entities"] = list(VALID_SPEC["entities"]) + ["with space"]
+    # entities check would already reject this — assert it raises in entities path.
+    with pytest.raises(SpecError):
+        validate_spec(bad)
+
+
+def test_validate_spec_rejects_vocabulary_key_with_uppercase_when_entity_valid():
+    """If a vocabulary key carries uppercase, validate_spec must reject it
+    (either in the entities check or in the vocabulary key check)."""
+    bad = dict(VALID_SPEC)
+    bad["vocabulary"] = {
+        **VALID_SPEC["vocabulary"],
+        "BadKey": "x/<slug>.md",
+    }
+    bad["entities"] = list(VALID_SPEC["entities"]) + ["BadKey"]
+    with pytest.raises(SpecError):
+        validate_spec(bad)

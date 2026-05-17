@@ -123,22 +123,30 @@ def _run_emit_fact(
 
         fact_path.parent.mkdir(parents=True, exist_ok=True)
         fact_md = _serialize_fact_md(source=manifest.source_name, fact_id=fact_id, fact=fact)
-        fact_path.write_text(fact_md, encoding="utf-8")
-
-        if manifest.destination_raw:
-            try:
-                raw_path = _safe_join(
-                    vault_root, _render_dest(manifest.destination_raw, fact=fact, today=today)
-                )
-            except IngestPathError as e:
-                errors.append(str(e))
-                continue
-            raw_path.parent.mkdir(parents=True, exist_ok=True)
-            raw_path.write_text(json.dumps(fact, indent=2), encoding="utf-8")
+        try:
+            fact_path.write_text(fact_md, encoding="utf-8")
+            if manifest.destination_raw:
+                try:
+                    raw_path = _safe_join(
+                        vault_root,
+                        _render_dest(manifest.destination_raw, fact=fact, today=today),
+                    )
+                except IngestPathError as e:
+                    errors.append(str(e))
+                    # fact_path written; mark seen so we don't re-emit. User
+                    # must fix destination_raw manually.
+                    dedup.mark_seen(source=manifest.source_name, fact_id=fact_id)
+                    continue
+                raw_path.parent.mkdir(parents=True, exist_ok=True)
+                raw_path.write_text(json.dumps(fact, indent=2), encoding="utf-8")
+        except OSError as e:
+            errors.append(f"write failed for {fact_id}: {e}")
+            # Mark seen so we don't loop on the same broken write every run.
+            dedup.mark_seen(source=manifest.source_name, fact_id=fact_id)
+            continue
 
         # write-then-mark: a crash here re-emits on next run (overwrites same path).
-        # The reverse (mark first) would silently drop the fact. Atomic write+mark
-        # is a follow-up — for now we accept the duplicate-write risk.
+        # The reverse (mark first) would silently drop the fact.
         dedup.mark_seen(source=manifest.source_name, fact_id=fact_id)
         emitted += 1
 

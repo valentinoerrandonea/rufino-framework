@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 from pathlib import Path
+
+from jinja2 import BaseLoader, Environment, StrictUndefined
+
 from rufino.engine.process.manifest import parse_worker_manifest
 from rufino.engine.process.helpers.frontmatter import (
     parse_frontmatter,
@@ -16,6 +19,27 @@ from rufino.engine.process.context_injectors import apply_context_injectors
 
 class DestinationOutsideVaultError(Exception):
     """Raised when a rendered destination_path would escape vault_root."""
+
+
+_PROMPT_ENV = Environment(
+    loader=BaseLoader(),
+    undefined=StrictUndefined,
+    autoescape=False,
+    keep_trailing_newline=True,
+)
+
+
+def _render_prompt(*, template: str, body: str, context: dict[str, str]) -> str:
+    """Render a process prompt template with `note_body` and `context.*` fields.
+
+    Uses jinja2 with StrictUndefined so typos in the template surface as errors.
+    Only the template string is interpreted as jinja — `body` and `context.*`
+    values are passed as variables and are NOT re-rendered, closing the
+    injection vector where a note body containing `{{context.X}}` could
+    consume context fields under the old `str.replace` implementation.
+    """
+    tpl = _PROMPT_ENV.from_string(template)
+    return tpl.render(note_body=body, context=context)
 
 
 @dataclass(frozen=True)
@@ -81,7 +105,7 @@ def _resolve_destination(vault_root: Path, dest_rel: str) -> Path:
         raise DestinationOutsideVaultError(
             f"destination {dest_rel!r} resolves outside vault {vault_root}"
         )
-    return vault_root / dest_rel
+    return dest
 
 
 def _process_full(
@@ -106,9 +130,9 @@ def _process_full(
         query=query_layer,
     )
 
-    rendered = prompt_template.replace("{{note_body}}", current_body)
-    for key, val in context.items():
-        rendered = rendered.replace(f"{{{{context.{key}}}}}", val)
+    rendered = _render_prompt(
+        template=prompt_template, body=current_body, context=context,
+    )
 
     llm_response = llm_client.complete(prompt=rendered, model=manifest.llm)
 
