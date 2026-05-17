@@ -109,6 +109,18 @@ def install_memory_loop(
 
     hooks_dir = claude_home / "hooks"
     commands_dir = claude_home / "commands"
+    # Refuse to clobber a prior install: rollback would destroy the previous
+    # good state. User must uninstall before re-installing.
+    for existing in (
+        hooks_dir / "rufino-memory-loop-init.sh",
+        hooks_dir / "rufino-memory-loop-stop.sh",
+        commands_dir / "remember.md",
+    ):
+        if existing.exists():
+            raise InstallationError(
+                f"{existing.name} already installed at {existing.parent}; "
+                f"uninstall first"
+            )
     for d in (hooks_dir, commands_dir):
         if not d.exists():
             apply_and_log(
