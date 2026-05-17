@@ -93,6 +93,15 @@ def materialize(
         except InstallationError as e:
             raise RuntimeError(f"Memory loop install failed: {e}") from e
 
+        from rufino.wizard.post_bootstrap_docs import render_user_readme
+        readme = vault_root / "README.md"
+        readme_content = render_user_readme(spec)
+        apply_and_log(
+            tx_log, op="write", target=str(readme),
+            apply_fn=lambda: readme.write_text(readme_content, encoding="utf-8"),
+            rollback="delete",
+        )
+
     except Exception as e:
         errors.append(f"Materialization failed: {e}")
         tx_log.rollback()
