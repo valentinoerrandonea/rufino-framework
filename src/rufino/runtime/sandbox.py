@@ -52,12 +52,40 @@ def run_transform_hook(
 
     env = {"PATH": "/usr/bin", "PYTHONUNBUFFERED": "1"}
 
+    if allow_network:
+        cmd = [sys.executable, str(hook_path)]
+    else:
+        # Fail-closed: patch `socket` module entry points before importing the
+        # hook so any `socket.socket(...)`, `socket.create_connection(...)`,
+        # `urllib.request.urlopen(...)`, `http.client.HTTPConnection(...)`,
+        # etc. that tries to open a connection raises immediately.
+        # Not a network namespace, but it does close the common stdlib paths.
+        # Patch DNS + connection helpers (not the `socket.socket` class
+        # itself, since `ssl` subclasses it on import and patching the class
+        # breaks unrelated imports). Blocking DNS + create_connection
+        # short-circuits every stdlib networking client (urllib, http.client,
+        # smtplib, ftplib, etc.) before any packet leaves the process.
+        wrapper = (
+            "import socket, runpy, sys\n"
+            "_BLOCKED = PermissionError(\n"
+            "    'network access disabled by Rufino sandbox (allow_network=False)'\n"
+            ")\n"
+            "def _blocked(*a, **kw):\n"
+            "    raise _BLOCKED\n"
+            "socket.create_connection = _blocked  # type: ignore[assignment]\n"
+            "socket.getaddrinfo = _blocked  # type: ignore[assignment]\n"
+            "socket.gethostbyname = _blocked  # type: ignore[assignment]\n"
+            "socket.gethostbyname_ex = _blocked  # type: ignore[assignment]\n"
+            "runpy.run_path(sys.argv[1], run_name='__main__')\n"
+        )
+        cmd = [sys.executable, "-c", wrapper, str(hook_path)]
+
     # Isolated cwd: hook can write only to its own tmpdir (helps prevent
     # accidental writes to the adapter directory or vault root).
     with tempfile.TemporaryDirectory(prefix="rufino-sandbox-") as isolated_cwd:
         try:
             completed = subprocess.run(
-                [sys.executable, str(hook_path)],
+                cmd,
                 input=json.dumps(input_data),
                 capture_output=True,
                 text=True,

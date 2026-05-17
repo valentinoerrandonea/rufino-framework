@@ -33,21 +33,18 @@ def test_timeout_enforced():
         )
 
 
-def test_network_hook_runs_without_raising():
-    """The sandbox's network restriction is best-effort (PATH-stripped subprocess),
-    not a hard firewall. This test only asserts the hook executes cleanly and
-    returns a well-formed JSON payload, NOT that network was actually blocked.
-    Real network isolation would require a network namespace (Linux) or a
-    pf-rule (macOS), neither portable here.
-    """
+def test_network_hook_blocked_when_allow_network_false():
+    """With allow_network=False, the hook's `urlopen` must fail (socket patched)."""
     result = run_transform_hook(
         hook_path=FIXTURES / "network_transform.py",
         input_data={},
         timeout_seconds=5,
         allow_network=False,
     )
-    assert isinstance(result.output, dict)
-    assert "network_ok" in result.output or "network_error" in result.output
+    assert "network_error" in result.output, (
+        "network was not blocked under allow_network=False: " + repr(result.output)
+    )
+    assert "network_ok" not in result.output
 
 
 def test_missing_hook_raises_clear_error(tmp_path: Path):
