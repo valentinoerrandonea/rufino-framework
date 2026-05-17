@@ -41,3 +41,42 @@ def test_query_cmd_lexical_mode_works_without_embedder(tmp_path):
     (vault / "x.md").write_text("hello world")
     res = CliRunner().invoke(cli, ["query", "hello", "--vault", str(vault), "--mode", "lexical"])
     assert res.exit_code == 0, res.output
+
+
+def test_materialize_registers_mcp_server(tmp_path, monkeypatch):
+    """rufino materialize must write ~/.claude.json with the ask-rufino entry
+    pointing at the new vault."""
+    import json
+    from click.testing import CliRunner
+    from rufino.cli import cli
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    # Path.home() reads HOME on POSIX but in modern Python uses pwd; monkeypatch.
+    monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
+
+    spec = {
+        "vertical_name": "t",
+        "patterns": [],
+        "entities": ["note"],
+        "vocabulary": {"note": "notes/<slug>.md"},
+        "sources": [],
+        "processing": [],
+        "outputs": [],
+    }
+    spec_file = tmp_path / "spec.json"
+    spec_file.write_text(json.dumps(spec))
+
+    res = CliRunner().invoke(cli, [
+        "materialize",
+        "--spec", str(spec_file),
+        "--vault", str(tmp_path / "vault"),
+        "--claude-home", str(tmp_path / ".claude_home"),
+        "--state-dir", str(tmp_path / ".state"),
+    ])
+    assert res.exit_code == 0, res.output
+
+    cfg = json.loads((tmp_path / ".claude.json").read_text())
+    entry = cfg["mcpServers"]["ask-rufino"]
+    assert entry["args"][0] == "mcp-server"
+    assert entry["args"][1] == "--vault"
+    assert entry["args"][2] == str(tmp_path / "vault")

@@ -291,4 +291,18 @@ def materialize_cmd(
         for err in result.errors:
             click.echo(f"ERROR: {err}", err=True)
         raise click.exceptions.Exit(code=2)
+
+    # Register the ask-rufino MCP server in ~/.claude.json so Claude Code can
+    # query the freshly materialized vault. Uses sys.argv[0] (the rufino CLI
+    # that's currently running) so the command stays correct under pipx/venv.
+    import sys
+    from rufino.runtime.claude_config import register_mcp_server
+    claude_config = Path.home() / ".claude.json"
+    register_mcp_server(
+        claude_config_path=claude_config,
+        server_name="ask-rufino",
+        command=sys.argv[0] if sys.argv and sys.argv[0] else "rufino",
+        args=["mcp-server", "--vault", str(result.vault_path)],
+    )
     click.echo(f"Vault materialized at {result.vault_path}")
+    click.echo(f"Registered ask-rufino MCP at {claude_config}")
