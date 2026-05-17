@@ -184,8 +184,16 @@ def bootstrap_cmd(dry_run: bool) -> None:
     if dry_run:
         click.echo(system_prompt)
         return
+    import shutil
     import subprocess
-    subprocess.run(
+    if shutil.which("claude") is None:
+        click.echo(
+            "Error: 'claude' CLI no encontrado en PATH. "
+            "Instalalo y volvé a correr `rufino bootstrap`.",
+            err=True,
+        )
+        raise click.exceptions.Exit(code=127)
+    proc = subprocess.run(
         [
             "claude", "-p", system_prompt,
             "--allowedTools",
@@ -193,6 +201,8 @@ def bootstrap_cmd(dry_run: bool) -> None:
         ],
         check=False,
     )
+    if proc.returncode != 0:
+        raise click.exceptions.Exit(code=proc.returncode)
 
 
 @cli.command(name="materialize")
@@ -214,9 +224,9 @@ def materialize_cmd(
 
     result = materialize(
         spec=spec,
-        vault_root=vault_root,
-        claude_home=claude_home,
-        state_dir=state_dir,
+        vault_root=vault_root.expanduser().resolve(),
+        claude_home=claude_home.expanduser().resolve(),
+        state_dir=state_dir.expanduser().resolve(),
     )
 
     if not result.success:

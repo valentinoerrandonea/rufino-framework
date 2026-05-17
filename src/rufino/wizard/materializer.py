@@ -31,23 +31,24 @@ def materialize(
 ) -> MaterializationResult:
     """Big bang: create vault skeleton + install Memory loop adapter transactionally.
 
-    v1 wires only the Memory loop installer; Ingest/Process/Output installers
-    are invoked separately via the per-primitive CLIs until they're folded into
-    this orchestrator in a follow-up iteration.
+    Every disk-touching op is recorded in a TransactionLog and rolled back on
+    failure. v1 wires only the Memory loop installer; Ingest/Process/Output
+    installers are invoked separately via the per-primitive CLIs until they're
+    folded into this orchestrator in a follow-up iteration.
     """
     errors: list[str] = []
 
     missing_vocab = [e for e in spec.entities if e not in spec.vocabulary]
     if missing_vocab:
-        errors.append(
-            f"Entities without vocabulary entry: {missing_vocab}"
-        )
+        errors.append(f"Entities without vocabulary entry: {missing_vocab}")
         return MaterializationResult(success=False, vault_path=vault_root, errors=errors)
 
-    state_dir.mkdir(parents=True, exist_ok=True)
-    tx_log = TransactionLog(state_dir / f"materialize-{spec.vertical_name}.json")
+    tx_log: TransactionLog | None = None
 
     try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        tx_log = TransactionLog(state_dir / f"materialize-{spec.vertical_name}.json")
+
         apply_and_log(
             tx_log, op="mkdir", target=str(vault_root),
             apply_fn=lambda: vault_root.mkdir(parents=True),
@@ -71,7 +72,11 @@ def materialize(
         )
 
         adapter_dir = state_dir.parent / "adapters" / "memory_loop" / spec.vertical_name
-        adapter_dir.mkdir(parents=True, exist_ok=True)
+        apply_and_log(
+            tx_log, op="mkdir", target=str(adapter_dir),
+            apply_fn=lambda: adapter_dir.mkdir(parents=True),
+            rollback="rmdir",
+        )
         manifest = {
             "adapter_name": f"memory-loop-{_kebab(spec.vertical_name)}",
             "vertical_name": spec.vertical_name,
@@ -79,10 +84,14 @@ def materialize(
             "note_destinations": dict(spec.vocabulary),
             "rule_extensions": [],
         }
-        (adapter_dir / "manifest.yaml").write_text(
-            yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True),
-            encoding="utf-8",
+        manifest_path = adapter_dir / "manifest.yaml"
+        manifest_text = yaml.safe_dump(manifest, sort_keys=False, allow_unicode=True)
+        apply_and_log(
+            tx_log, op="write", target=str(manifest_path),
+            apply_fn=lambda: manifest_path.write_text(manifest_text, encoding="utf-8"),
+            rollback="delete",
         )
+
         try:
             install_memory_loop(
                 adapter_dir=adapter_dir,
@@ -104,7 +113,11 @@ def materialize(
 
     except Exception as e:
         errors.append(f"Materialization failed: {e}")
-        tx_log.rollback()
+        if tx_log is not None:
+            try:
+                tx_log.rollback()
+            except Exception as rb_err:
+                errors.append(f"Rollback also failed: {rb_err}")
         return MaterializationResult(success=False, vault_path=vault_root, errors=errors)
 
     return MaterializationResult(success=True, vault_path=vault_root, errors=errors)
