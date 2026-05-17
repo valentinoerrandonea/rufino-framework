@@ -18,7 +18,7 @@ output_schema:
 triple_vocabulary: [<relation>, ...]
 tag_axes:
   - { axis: <name>, format: "<axis>/<slug>", required: true | false, min: <int> }
-destination_path: "<path-template-with-{frontmatter-fields}>"
+destination_path: "<path-template-with-{frontmatter-fields}>"   # must be relative — validator rejects absolute paths
 qa_triggers:
   - { name: <name>, condition: "<expression>" }
 context_injectors:

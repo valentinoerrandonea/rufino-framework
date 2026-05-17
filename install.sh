@@ -6,12 +6,10 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUFINO_HOME="${RUFINO_HOME:-$HOME/.rufino}"
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 
 echo "==> Rufino Framework installer"
 echo "    repo:        $REPO_DIR"
 echo "    RUFINO_HOME: $RUFINO_HOME"
-echo "    CLAUDE_HOME: $CLAUDE_HOME"
 echo
 
 # --- Step 1: Check Python
@@ -35,9 +33,17 @@ EOF
     exit 1
 fi
 
-# --- Step 3: Install Rufino in an isolated pipx venv (idempotent via --force)
-echo "==> Installing Rufino into pipx venv"
-pipx install --force -e "$REPO_DIR"
+# --- Step 3: Install Rufino in an isolated pipx venv (idempotent)
+# pipx install --force can fail on the uv backend if the venv exists from a
+# prior session ("Not removing existing venv ... was not created in this
+# session"). Use reinstall when already present.
+if pipx list --short 2>/dev/null | awk '{print $1}' | grep -qx 'rufino-framework'; then
+    echo "==> Rufino already installed — rebuilding via pipx reinstall"
+    pipx reinstall rufino-framework
+else
+    echo "==> Installing Rufino into pipx venv"
+    pipx install -e "$REPO_DIR"
+fi
 
 # --- Step 4: Resolve where pipx put the rufino binary
 if [ -n "${PIPX_BIN_DIR:-}" ]; then
@@ -77,6 +83,8 @@ else
 fi
 
 # --- Step 6: Create ~/.rufino structure
+# ($CLAUDE_HOME subdirs like hooks/commands are created lazily by
+#  the memory-loop installer when an adapter is installed — not seeded here.)
 echo "==> Creating $RUFINO_HOME structure"
 mkdir -p "$RUFINO_HOME/state"
 mkdir -p "$RUFINO_HOME/backups"
@@ -84,30 +92,40 @@ mkdir -p "$RUFINO_HOME/adapters/ingest"
 mkdir -p "$RUFINO_HOME/adapters/process"
 mkdir -p "$RUFINO_HOME/adapters/output"
 mkdir -p "$RUFINO_HOME/adapters/memory_loop"
-mkdir -p "$CLAUDE_HOME/hooks"
-mkdir -p "$CLAUDE_HOME/commands"
 
 # Track installed version
 "$RUFINO_BIN" version > "$RUFINO_HOME/version"
 echo "    version recorded: $(cat "$RUFINO_HOME/version")"
 
-# --- Step 7: Register MCP server
+# --- Step 7: Register MCP server (only if we know a real vault path)
+# The MCP server needs a real --vault path; Click rejects --vault when
+# the directory does not exist. If RUFINO_VAULT is set in the environment
+# we use it; otherwise we skip and let `rufino bootstrap` finish the
+# registration once the user has materialized a vault.
 CLAUDE_JSON="$HOME/.claude.json"
+MCP_REGISTERED="no"
 if command -v jq >/dev/null 2>&1; then
-    if [ ! -f "$CLAUDE_JSON" ]; then
-        echo "{}" > "$CLAUDE_JSON"
-    fi
-    if ! jq -e '.mcpServers["ask-rufino"]' "$CLAUDE_JSON" >/dev/null 2>&1; then
-        echo "==> Registering MCP server ask-rufino in $CLAUDE_JSON"
-        TMP="$(mktemp)"
-        jq --arg cmd "$RUFINO_BIN" \
-           '.mcpServers["ask-rufino"] = {
-                command: $cmd,
-                args: ["mcp-server", "--vault", "<set RUFINO_VAULT env>"]
-            }' "$CLAUDE_JSON" > "$TMP"
-        mv "$TMP" "$CLAUDE_JSON"
+    if [ -n "${RUFINO_VAULT:-}" ] && [ -d "$RUFINO_VAULT" ]; then
+        if [ ! -f "$CLAUDE_JSON" ]; then
+            echo "{}" > "$CLAUDE_JSON"
+        fi
+        if ! jq -e '.mcpServers["ask-rufino"]' "$CLAUDE_JSON" >/dev/null 2>&1; then
+            echo "==> Registering MCP server ask-rufino in $CLAUDE_JSON"
+            TMP="$(mktemp)"
+            jq --arg cmd "$RUFINO_BIN" --arg vault "$RUFINO_VAULT" \
+               '.mcpServers["ask-rufino"] = {
+                    command: $cmd,
+                    args: ["mcp-server", "--vault", $vault]
+                }' "$CLAUDE_JSON" > "$TMP"
+            mv "$TMP" "$CLAUDE_JSON"
+            MCP_REGISTERED="yes"
+        else
+            echo "    MCP server already registered (skip)"
+            MCP_REGISTERED="already"
+        fi
     else
-        echo "    MCP server already registered (skip)"
+        echo "    MCP server NOT registered — RUFINO_VAULT not set or not a directory." >&2
+        echo "    Run \`rufino bootstrap\` to materialize a vault; the wizard will register the MCP server at the end." >&2
     fi
 else
     echo "    WARN: jq not installed — skipping MCP registration." >&2

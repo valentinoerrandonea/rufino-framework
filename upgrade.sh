@@ -8,7 +8,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RUFINO_HOME="${RUFINO_HOME:-$HOME/.rufino}"
+export RUFINO_HOME="${RUFINO_HOME:-$HOME/.rufino}"
 VERSION_FILE="$RUFINO_HOME/version"
 
 if [ ! -f "$VERSION_FILE" ]; then
@@ -60,8 +60,14 @@ mkdir -p "$BACKUP_DIR"
 find "$RUFINO_HOME" -maxdepth 1 -mindepth 1 ! -name backups -exec cp -a {} "$BACKUP_DIR/" \;
 
 # --- Reinstall Python package via pipx
+# Use reinstall when the package is already known to pipx (most upgrade paths).
+# Fall back to install -e if missing (e.g. someone deleted the pipx venv).
 echo "==> Reinstalling Rufino into pipx venv"
-pipx install --force -e "$REPO_DIR"
+if pipx list --short 2>/dev/null | awk '{print $1}' | grep -qx 'rufino-framework'; then
+    pipx reinstall rufino-framework
+else
+    pipx install -e "$REPO_DIR"
+fi
 
 # --- Apply migrations in order
 echo "==> Applying migrations"
