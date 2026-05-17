@@ -34,17 +34,21 @@ def test_cron_trigger_renders_and_writes(tmp_vault: Path):
     assert "apuntes/ml-i/clase2.md" in content
 
 
-def test_unknown_channel_in_manifest_raises(tmp_vault: Path):
+def test_unknown_channel_in_manifest_appends_to_errors(tmp_vault: Path):
+    """Unknown channel must not short-circuit the loop — record as error
+    so other deliveries in the same manifest can succeed."""
     query = StubQueryLayer()
     channels: dict = {}
 
-    with pytest.raises(Exception, match="file"):
-        dispatch_output(
-            adapter_dir=FIXTURE,
-            query=query,
-            channels=channels,
-            event_context={},
-        )
+    result = dispatch_output(
+        adapter_dir=FIXTURE,
+        query=query,
+        channels=channels,
+        event_context={},
+    )
+    assert result.deliveries == 0
+    assert any("file" in e for e in result.errors)
+    assert any("not registered" in e.lower() or "unknown" in e.lower() for e in result.errors)
 
 
 class _FailingChannel:

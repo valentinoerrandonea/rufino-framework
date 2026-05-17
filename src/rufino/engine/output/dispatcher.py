@@ -63,9 +63,11 @@ def dispatch_output(
     for delivery in manifest.delivery:
         channel_name = delivery["channel"]
         if channel_name not in channels:
-            raise UnknownChannelError(
-                f"Manifest references channel {channel_name!r} but it is not registered"
+            # Don't short-circuit: record and continue so other deliveries run.
+            errors.append(
+                f"{channel_name}: channel not registered (unknown channel)"
             )
+            continue
         try:
             channels[channel_name].deliver(config=dict(delivery), content=content)
             deliveries += 1
