@@ -78,3 +78,25 @@ def test_push_escapes_applescript_injection():
         assert script.count('\\"') == 2
         # 4 delimiter quotes + 2 quote-chars inside \" = 6 total
         assert script.count('"') == 6
+
+
+from rufino.engine.output.channels.webhook_channel import InvalidWebhookTargetError  # noqa: E402
+
+
+@pytest.mark.parametrize("url", [
+    "http://localhost:8080/x",
+    "http://127.0.0.1/x",
+    "http://10.0.0.1/x",
+    "http://192.168.1.1/x",
+    "http://172.16.0.1/x",
+    "http://169.254.169.254/latest/meta-data",  # AWS metadata
+    "http://[::1]/x",
+])
+def test_webhook_blocks_private_and_loopback(url):
+    with pytest.raises(InvalidWebhookTargetError):
+        WebhookChannel().deliver(config={"url": url}, content="x")
+
+
+def test_webhook_blocks_localhost_hostname():
+    with pytest.raises(InvalidWebhookTargetError):
+        WebhookChannel().deliver(config={"url": "http://localhost/x"}, content="x")
