@@ -44,3 +44,30 @@ def test_pick_scheduler_for_os_linux():
 def test_pick_scheduler_for_os_unknown_raises():
     with pytest.raises(NotImplementedError):
         pick_scheduler_for_os("Windows")
+
+
+def test_scheduled_job_rejects_newline_in_name():
+    with pytest.raises(ValueError, match="newlines"):
+        ScheduledJob(name="bad\nname", cron="0 0 * * *", command="echo")
+
+
+def test_scheduled_job_rejects_newline_in_command():
+    with pytest.raises(ValueError, match="newlines"):
+        ScheduledJob(name="ok", cron="0 0 * * *", command="echo hi\nrm -rf /")
+
+
+def test_scheduled_job_rejects_malformed_cron():
+    with pytest.raises(ValueError, match="5 fields"):
+        ScheduledJob(name="ok", cron="0 0 * *", command="echo")
+
+
+def test_launchd_rejects_out_of_range_hour():
+    job = ScheduledJob(name="ok", cron="0 25 * * *", command="echo")
+    with pytest.raises(ValueError, match="out of range"):
+        LaunchdScheduler().render(job)
+
+
+def test_launchd_rejects_out_of_range_minute():
+    job = ScheduledJob(name="ok", cron="60 0 * * *", command="echo")
+    with pytest.raises(ValueError, match="out of range"):
+        LaunchdScheduler().render(job)

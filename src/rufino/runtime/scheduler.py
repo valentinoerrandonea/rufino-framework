@@ -9,6 +9,18 @@ class ScheduledJob:
     cron: str  # standard 5-field cron expression
     command: str
 
+    def __post_init__(self) -> None:
+        for field_name, value in (("name", self.name), ("command", self.command)):
+            if "\n" in value or "\r" in value:
+                raise ValueError(
+                    f"ScheduledJob.{field_name} must not contain newlines: {value!r}"
+                )
+        parts = self.cron.split()
+        if len(parts) != 5:
+            raise ValueError(
+                f"cron must have 5 fields, got {len(parts)}: {self.cron!r}"
+            )
+
 
 class Scheduler(Protocol):
     """Abstract scheduler. Renders a ScheduledJob to OS-specific format."""
@@ -25,6 +37,11 @@ class LaunchdScheduler:
             raise NotImplementedError(
                 f"LaunchdScheduler supports only simple cron expressions; got {job.cron!r}"
             )
+        m, h = int(minute), int(hour)
+        if not (0 <= m <= 59 and 0 <= h <= 23):
+            raise ValueError(
+                f"cron out of range: hour={h} minute={m} (got {job.cron!r})"
+            )
         return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -40,9 +57,9 @@ class LaunchdScheduler:
     <key>StartCalendarInterval</key>
     <dict>
         <key>Hour</key>
-        <integer>{int(hour)}</integer>
+        <integer>{h}</integer>
         <key>Minute</key>
-        <integer>{int(minute)}</integer>
+        <integer>{m}</integer>
     </dict>
 </dict>
 </plist>

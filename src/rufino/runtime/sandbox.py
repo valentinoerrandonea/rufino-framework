@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,23 +47,33 @@ def run_transform_hook(
     """
     if not (1 <= timeout_seconds <= 300):
         raise ValueError("timeout_seconds must be in [1, 300]")
+    if not hook_path.exists():
+        raise SandboxHookFailed(f"Hook not found: {hook_path}")
 
     env = {"PATH": "/usr/bin", "PYTHONUNBUFFERED": "1"}
 
-    try:
-        completed = subprocess.run(
-            [sys.executable, str(hook_path)],
-            input=json.dumps(input_data),
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            env=env,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as e:
-        raise SandboxTimeout(
-            f"Hook {hook_path} exceeded {timeout_seconds}s timeout"
-        ) from e
+    # Isolated cwd: hook can write only to its own tmpdir (helps prevent
+    # accidental writes to the adapter directory or vault root).
+    with tempfile.TemporaryDirectory(prefix="rufino-sandbox-") as isolated_cwd:
+        try:
+            completed = subprocess.run(
+                [sys.executable, str(hook_path)],
+                input=json.dumps(input_data),
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                env=env,
+                cwd=isolated_cwd,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise SandboxTimeout(
+                f"Hook {hook_path} exceeded {timeout_seconds}s timeout"
+            ) from e
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            raise SandboxHookFailed(
+                f"Hook {hook_path} could not be launched: {e}"
+            ) from e
 
     if completed.returncode != 0:
         raise SandboxHookFailed(

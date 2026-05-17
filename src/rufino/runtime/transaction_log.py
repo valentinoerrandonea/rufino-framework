@@ -55,23 +55,39 @@ class TransactionLog:
         return list(self._entries)
 
     def rollback(self) -> None:
-        """Execute rollback for each entry in REVERSE order."""
-        for entry in reversed(self._entries):
+        """Execute rollback for each entry in REVERSE order.
+
+        Idempotent: each successful handler pops its entry and flushes the log,
+        so re-running rollback() on a fully-rolled-back log is a no-op.
+        If a handler raises, remaining entries stay in the log and a subsequent
+        rollback() retries from where it stopped.
+        """
+        while self._entries:
+            entry = self._entries[-1]
             handler = _ROLLBACK_REGISTRY.get(entry.rollback)
             if handler is None:
                 raise RuntimeError(f"No rollback handler registered for {entry.rollback!r}")
             handler(entry.target)
+            self._entries.pop()
+            self._flush()
 
     @classmethod
     def load(cls, path: Path) -> "TransactionLog":
         log = cls(path)
-        if path.exists():
+        if not path.exists():
+            return log
+        try:
             raw = json.loads(path.read_text())
             log._entries = [LogEntry(**e) for e in raw]
+        except (json.JSONDecodeError, TypeError) as e:
+            raise RuntimeError(f"Transaction log at {path} is corrupted: {e}") from e
         return log
 
     def _flush(self) -> None:
-        self._path.write_text(json.dumps([e.to_dict() for e in self._entries], indent=2))
+        """Atomic write: stage to .tmp then rename."""
+        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
+        tmp.write_text(json.dumps([e.to_dict() for e in self._entries], indent=2))
+        tmp.replace(self._path)
 
 
 def apply_and_log(
