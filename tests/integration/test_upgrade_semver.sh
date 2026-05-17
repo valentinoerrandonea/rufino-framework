@@ -41,7 +41,9 @@ echo "OK: downgrade blocked"
 
 # Verify RUFINO_FORCE=1 override works.
 rc=0
-RUFINO_FORCE=1 output="$("$REPO_DIR/upgrade.sh" 2>&1)" || rc=$?
+export RUFINO_FORCE=1
+output="$("$REPO_DIR/upgrade.sh" 2>&1)" || rc=$?
+unset RUFINO_FORCE
 echo "$output" | grep -qi "forced downgrade" || {
     echo "FAIL: --force did not produce expected message"
     echo "$output"
