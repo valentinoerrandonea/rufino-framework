@@ -10,7 +10,16 @@ from rufino.engine.output.dispatcher import dispatch_output
 from rufino.engine.output.channels.file_channel import FileChannel
 from rufino.engine.process.context_injectors import StubQueryLayer
 from rufino.engine.qa.worker import poll_and_dispatch
+from rufino.engine.query.api import QueryLayer
+from rufino.mcp_server.server import build_server
 from rufino.runtime.transaction_log import TransactionLog
+
+
+class _NoopEmbeddings:
+    """Placeholder embedder for v1. Real Ollama wiring lands in plan 9 installer."""
+
+    def embed(self, text: str) -> list[float]:
+        return [0.0] * 8
 
 
 @click.group()
@@ -123,3 +132,40 @@ def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
         handler=_noop_handler,
     )
     click.echo(f"dispatched={dispatched}")
+
+
+@cli.command(name="query")
+@click.argument("query_string")
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--mode", default="hybrid", type=click.Choice(["lexical", "semantic", "hybrid"]))
+def query_cmd(query_string: str, vault_root: Path, mode: str) -> None:
+    """Search the vault."""
+    ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
+    if mode != "lexical":
+        ql.rebuild_indices()
+    results = ql.search(query_string, mode=mode)
+    for r in results:
+        click.echo(r.relative_path)
+
+
+@cli.command(name="mcp-server")
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--rebuild/--no-rebuild", default=True,
+              help="Rebuild semantic+graph indices on startup (default: enabled)")
+def mcp_server_cmd(vault_root: Path, rebuild: bool) -> None:
+    """Run the ask-rufino MCP server on stdio."""
+    import asyncio
+    from mcp.server.stdio import stdio_server
+
+    ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
+    if rebuild:
+        ql.rebuild_indices()
+    server = build_server(ql)
+
+    async def _main() -> None:
+        async with stdio_server() as (read, write):
+            await server.run(read, write, server.create_initialization_options())
+
+    asyncio.run(_main())
