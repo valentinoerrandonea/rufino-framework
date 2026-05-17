@@ -7,7 +7,12 @@ class FrontmatterError(Exception):
 
 
 def parse_frontmatter(note_text: str) -> tuple[dict[str, Any], str]:
-    """Return (frontmatter_dict, body). Empty dict if no frontmatter present."""
+    """Return (frontmatter_dict, body). Empty dict if no frontmatter present.
+
+    Normalizes CRLF to LF so notes saved by Obsidian on Windows (or via misconfigured
+    editors) parse the same as Unix-native ones.
+    """
+    note_text = note_text.replace("\r\n", "\n")
     if not note_text.startswith("---\n"):
         return {}, note_text
 

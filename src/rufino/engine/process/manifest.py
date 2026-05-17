@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import PurePath
-from typing import Any
+from types import MappingProxyType
+from typing import Any, Mapping
 import yaml
 
 
@@ -15,15 +16,15 @@ VALID_MODES = {"full", "light", "lint"}
 class WorkerAdapterManifest:
     adapter_name: str
     note_type: str
-    applies_when: dict[str, Any]
+    applies_when: Mapping[str, Any]
     llm: str
     mode_default: str
-    output_schema: dict[str, Any]
+    output_schema: Mapping[str, Any]
     triple_vocabulary: tuple[str, ...]
-    tag_axes: tuple[dict[str, Any], ...]
+    tag_axes: tuple[Mapping[str, Any], ...]
     destination_path: str
-    qa_triggers: tuple[dict[str, Any], ...]
-    context_injectors: tuple[dict[str, Any], ...]
+    qa_triggers: tuple[Mapping[str, Any], ...]
+    context_injectors: tuple[Mapping[str, Any], ...]
     transform_hook: str | None = None
 
 
@@ -38,6 +39,18 @@ _REQUIRED = (
     "tag_axes",
     "destination_path",
 )
+
+
+def _freeze(value: Any) -> Any:
+    """Recursively wrap dicts in MappingProxyType so a parsed manifest is immutable.
+
+    Lists become tuples; non-collection scalars pass through unchanged.
+    """
+    if isinstance(value, dict):
+        return MappingProxyType({k: _freeze(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(v) for v in value)
+    return value
 
 
 def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
@@ -66,14 +79,14 @@ def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
     return WorkerAdapterManifest(
         adapter_name=raw["adapter_name"],
         note_type=raw["note_type"],
-        applies_when=raw["applies_when"],
+        applies_when=_freeze(raw["applies_when"]),
         llm=raw["llm"],
         mode_default=raw["mode_default"],
-        output_schema=raw["output_schema"],
+        output_schema=_freeze(raw["output_schema"]),
         triple_vocabulary=tuple(raw["triple_vocabulary"]),
-        tag_axes=tuple(raw["tag_axes"]),
+        tag_axes=_freeze(raw["tag_axes"]),
         destination_path=raw["destination_path"],
-        qa_triggers=tuple(raw.get("qa_triggers", [])),
-        context_injectors=tuple(raw.get("context_injectors", [])),
+        qa_triggers=_freeze(raw.get("qa_triggers", [])),
+        context_injectors=_freeze(raw.get("context_injectors", [])),
         transform_hook=raw.get("transform_hook"),
     )

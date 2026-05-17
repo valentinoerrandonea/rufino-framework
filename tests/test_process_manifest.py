@@ -62,3 +62,11 @@ def test_destination_must_be_relative():
     )
     with pytest.raises(ManifestParseError, match="absolute"):
         parse_worker_manifest(yaml)
+
+
+def test_manifest_dict_fields_are_immutable():
+    m = parse_worker_manifest(VALID)
+    with pytest.raises(TypeError):
+        m.applies_when["injected"] = "evil"
+    with pytest.raises(TypeError):
+        m.output_schema["required"]["injected"] = "evil"

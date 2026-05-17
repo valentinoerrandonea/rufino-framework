@@ -43,3 +43,10 @@ def test_validate_schema_required_missing_raises():
 def test_validate_schema_optional_absent_ok():
     schema = {"required": {}, "optional": {"profesor": "persona_ref"}}
     validate_against_schema({}, schema)  # no raise
+
+
+def test_parse_handles_crlf_line_endings():
+    note = "---\r\ntitle: hello\r\ntags: [a, b]\r\n---\r\nBody here.\r\n"
+    fm, body = parse_frontmatter(note)
+    assert fm == {"title": "hello", "tags": ["a", "b"]}
+    assert "Body here." in body

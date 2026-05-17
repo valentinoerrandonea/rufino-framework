@@ -14,7 +14,11 @@ from rufino.engine.process.helpers.indices import update_tag_index, append_to_lo
 from rufino.engine.process.context_injectors import apply_context_injectors
 
 
-@dataclass
+class DestinationOutsideVaultError(Exception):
+    """Raised when a rendered destination_path would escape vault_root."""
+
+
+@dataclass(frozen=True)
 class ProcessResult:
     success: bool
     note_path: Path
@@ -64,6 +68,22 @@ def _process_light(*, note_path: Path, vault_root: Path) -> ProcessResult:
     return ProcessResult(success=True, note_path=note_path, message="light OK")
 
 
+def _resolve_destination(vault_root: Path, dest_rel: str) -> Path:
+    """Resolve `dest_rel` under `vault_root`, rejecting any path that escapes the vault.
+
+    LLM-controlled frontmatter values are interpolated into `dest_rel` upstream; this
+    check guarantees no traversal sequences (`..`, absolute paths, symlink-style escapes)
+    can write outside the vault.
+    """
+    vault_resolved = vault_root.resolve()
+    dest = (vault_root / dest_rel).resolve()
+    if vault_resolved != dest and vault_resolved not in dest.parents:
+        raise DestinationOutsideVaultError(
+            f"destination {dest_rel!r} resolves outside vault {vault_root}"
+        )
+    return vault_root / dest_rel
+
+
 def _process_full(
     *,
     note_path: Path,
@@ -103,10 +123,9 @@ def _process_full(
         slug=note_slug,
         **{k: v for k, v in augmented_fm.items() if isinstance(v, str)},
     )
-    dest = vault_root / dest_rel
+    dest = _resolve_destination(vault_root, dest_rel)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(render_frontmatter(augmented_fm, augmented_body))
-    note_path.unlink()
 
     tag_index = vault_root / "_meta" / "_tags.md"
     for tag in augmented_fm.get("tags", []):
@@ -115,5 +134,8 @@ def _process_full(
         vault_root / "_meta" / "_processing-log.md",
         message=f"full-processed {note_slug} → {dest_rel}",
     )
+
+    # Source removed last: if any earlier step fails, the user can retry from the inbox.
+    note_path.unlink()
 
     return ProcessResult(success=True, note_path=dest, message=f"moved to {dest_rel}")
