@@ -8,7 +8,7 @@ from rufino.engine.qa.callback_registry import CallbackRegistry, PendingCallback
 
 
 class QALoopError(Exception):
-    """Raised on unsafe template_name or other API contract violations."""
+    """Raised on unsafe template_name, missing template, or contract violations."""
 
 
 @dataclass
@@ -35,6 +35,8 @@ class QALoopAPI:
         `get_answer` even after the file is moved to `questions/answered/`.
         """
         template_path = self._resolve_template_path(template_name)
+        if not template_path.exists():
+            raise QALoopError(f"template not found: {template_name!r}")
         template = parse_template_file(template_path)
 
         body = render_question(template, context=context)
@@ -56,6 +58,8 @@ class QALoopAPI:
 
         Reads from `questions/<slug>.md` first; falls back to
         `questions/answered/<slug>.md` after the worker has moved the file.
+        Raises `QuestionStoreError` if the file contains a malformed answer
+        (e.g. unquoted YAML bareword that parsed as bool / int / date).
         """
         return self._store.get_answer(slug)
 
@@ -64,8 +68,11 @@ class QALoopAPI:
             self.templates_dir / f"{template_name.replace('_', '-')}.md"
         ).resolve()
         root = self.templates_dir.resolve()
-        if root != candidate and root not in candidate.parents:
+        # Reject escape AND reject subdirectory components (template_name
+        # must map to a flat filename directly under templates_dir).
+        if candidate.parent != root:
             raise QALoopError(
-                f"template_name escapes templates_dir: {template_name!r}"
+                f"template_name must be flat (no path components or traversal): "
+                f"{template_name!r}"
             )
         return candidate

@@ -2,7 +2,8 @@ import logging
 from pathlib import Path
 from typing import Callable
 
-from rufino.engine.qa.store import QuestionStore
+from rufino.engine.process.helpers.frontmatter import FrontmatterError
+from rufino.engine.qa.store import QuestionStore, QuestionStoreError
 from rufino.engine.qa.callback_registry import CallbackRegistry
 
 
@@ -17,8 +18,11 @@ def poll_and_dispatch(
 ) -> int:
     """For every question with answer present, invoke handler() and mark answered.
 
-    The handler is invoked BEFORE the callback is consumed from the registry
-    so that a handler crash leaves the question + callback intact for retry.
+    Crash semantics:
+    - If `get_answer` raises (malformed YAML, bareword answer, traversal),
+      that single file is skipped with a warning. Other questions still run.
+    - If `handler` raises, the callback stays in the registry and the
+      question file stays in `questions/` so the next poll can retry.
 
     Returns the number of callbacks dispatched successfully.
     """
@@ -34,7 +38,13 @@ def poll_and_dispatch(
         if not p.is_file():
             continue
         slug = p.stem
-        answer = store.get_answer(slug)
+
+        try:
+            answer = store.get_answer(slug)
+        except (QuestionStoreError, FrontmatterError) as e:
+            _log.warning("skipping %s: %s", slug, e)
+            continue
+
         if answer is None:
             continue
 
@@ -55,8 +65,8 @@ def poll_and_dispatch(
             _log.exception("handler failed for slug=%s; leaving for retry", slug)
             continue
 
-        # Handler succeeded — only now consume the callback and archive the file.
-        registry.consume(slug)
+        # Handler succeeded — drop the callback and archive the file.
+        registry.delete(slug)
         store.mark_answered(slug)
         dispatched += 1
 

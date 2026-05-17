@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -7,6 +8,9 @@ from rufino.engine.process.helpers.frontmatter import (
     parse_frontmatter,
     FrontmatterError,
 )
+
+
+_log = logging.getLogger(__name__)
 
 
 class QuestionStoreError(Exception):
@@ -22,7 +26,14 @@ class Question:
 
 
 class QuestionStore:
-    """Read/write question files in the vault's questions/ directory."""
+    """Read/write question files in the vault's questions/ directory.
+
+    Error model:
+    - `_read_answer` (and therefore `get_answer`) RAISES on malformed answers
+      so the caller can react (e.g. surface to the user).
+    - `list_pending` SKIPS malformed files with a logged warning so a single
+      bad file doesn't break enumeration.
+    """
 
     def __init__(self, questions_dir: Path) -> None:
         self._dir = questions_dir
@@ -57,7 +68,8 @@ class QuestionStore:
                 continue
             try:
                 fm, _ = parse_frontmatter(p.read_text())
-            except FrontmatterError:
+            except FrontmatterError as e:
+                _log.warning("skipping %s in list_pending: %s", p.name, e)
                 continue
             answer = fm.get("answer")
             if answer is None or (isinstance(answer, str) and answer.strip() == ""):
@@ -67,6 +79,13 @@ class QuestionStore:
                     answer=None,
                     path=p,
                 ))
+            elif not isinstance(answer, str):
+                # Same malformed-answer condition that `_read_answer` rejects,
+                # but here we skip + log to keep enumeration robust.
+                _log.warning(
+                    "skipping %s in list_pending: answer parsed as %s; user must quote it",
+                    p.name, type(answer).__name__,
+                )
         return out
 
     def mark_answered(self, slug: str) -> None:
@@ -78,15 +97,16 @@ class QuestionStore:
         base = (self._dir / "answered") if answered else self._dir
         candidate = (base / f"{slug}.md").resolve()
         root = base.resolve()
-        if root != candidate and root not in candidate.parents:
-            raise QuestionStoreError(f"slug escapes questions dir: {slug!r}")
+        # Reject escape (ancestor check) AND reject subdirectory components
+        # (slug must yield a flat filename directly under `base`).
+        if candidate.parent != root:
+            raise QuestionStoreError(
+                f"slug must be flat (no path components or traversal): {slug!r}"
+            )
         return candidate
 
     def _read_answer(self, path: Path) -> str | None:
-        try:
-            fm, _ = parse_frontmatter(path.read_text())
-        except FrontmatterError:
-            return None
+        fm, _ = parse_frontmatter(path.read_text())
         ans = fm.get("answer")
         if ans is None:
             return None

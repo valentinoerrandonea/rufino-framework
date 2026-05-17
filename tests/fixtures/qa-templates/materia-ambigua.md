@@ -15,4 +15,6 @@ Encontré candidatos:
 {{ evidence }}
 
 ## Respondé editando frontmatter
-`answer: <slug>` | `answer: nueva` + `nueva_materia: <slug>` | `answer: ninguna`
+Escribí el valor entre comillas para evitar que YAML lo interprete como booleano o número:
+
+`answer: "<slug>"` | `answer: "nueva"` + `nueva_materia: "<slug>"` | `answer: "ninguna"`
