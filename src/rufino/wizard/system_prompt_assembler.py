@@ -1,3 +1,4 @@
+from functools import lru_cache
 from pathlib import Path
 
 from jinja2 import BaseLoader, Environment, StrictUndefined
@@ -70,8 +71,13 @@ Si confirma -> invocar materializer -> dry-run -> resultado.
 """
 
 
+@lru_cache(maxsize=1)
 def build_system_prompt() -> str:
-    """Compose the wizard's system prompt from static files + patterns directory."""
+    """Compose the wizard's system prompt from static files + patterns directory.
+
+    Cached: the static content doesn't change between calls in a single process,
+    so we avoid re-reading 3 files + globbing patterns/ on every invocation.
+    """
     language_rules = (_WIZARD_DIR / "language_rules.md").read_text(encoding="utf-8")
     operative_rules = (_WIZARD_DIR / "operative_rules.md").read_text(encoding="utf-8")
     checklist = (_WIZARD_DIR / "checklist.md").read_text(encoding="utf-8")

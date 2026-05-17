@@ -107,3 +107,33 @@ def test_spec_blocks_nested_dict_mutation():
     })
     with pytest.raises((TypeError, AttributeError)):
         nested_spec.sources[0]["config"]["key"] = "pwned"  # type: ignore[index]
+
+
+@pytest.mark.parametrize("bad_entity", [
+    "Has Spaces",
+    "back`tick",
+    "bra[cket]",
+    "with\nnewline",
+    "1starts-with-digit",
+    "",
+    "x" * 65,
+    "with/slash",
+])
+def test_validate_spec_rejects_bad_entity_names(bad_entity):
+    bad = dict(VALID_SPEC)
+    bad["entities"] = [bad_entity]
+    bad["vocabulary"] = {bad_entity: "ok/<slug>.md"}
+    with pytest.raises(SpecError, match="entit"):
+        validate_spec(bad)
+
+
+def test_validate_spec_accepts_entity_with_underscore():
+    spec = validate_spec({
+        **VALID_SPEC,
+        "entities": ["apunte_clase", "materia"],
+        "vocabulary": {
+            "apunte_clase": "apuntes/<slug>.md",
+            "materia": "materias/<slug>.md",
+        },
+    })
+    assert "apunte_clase" in spec.entities

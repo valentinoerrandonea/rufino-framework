@@ -50,3 +50,13 @@ def test_auto_detect_silent_when_vault_env_unset():
     )
     assert completed.returncode == 0
     assert completed.stdout.strip() == ""
+
+
+def test_auto_detect_silent_with_deeply_nested_note(tmp_vault: Path):
+    """A note in vault/a/b/c/d/note.md must count — script can't be misled by depth."""
+    deep = tmp_vault / "a" / "b" / "c" / "d"
+    deep.mkdir(parents=True)
+    (deep / "note.md").write_text("content")
+    completed = _run(tmp_vault)
+    assert completed.returncode == 0
+    assert completed.stdout.strip() == ""

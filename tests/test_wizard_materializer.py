@@ -102,3 +102,24 @@ def test_materialize_returns_result_when_state_dir_unwritable(
     )
     assert result.success is False
     assert any("simulated" in e.lower() or "permission" in e.lower() for e in result.errors)
+
+
+def test_materialize_fails_loud_when_adapter_dir_already_exists(tmp_path: Path):
+    """Pre-existing adapter_dir (leftover from failed run or concurrent process)
+    must cause a clean failure, not silently overwrite manifest.yaml."""
+    spec = validate_spec(MINIMAL_SPEC)
+    state_dir = tmp_path / ".rufino-state"
+    adapter_dir = state_dir.parent / "adapters" / "memory_loop" / spec.vertical_name
+    adapter_dir.mkdir(parents=True)
+
+    result = materialize(
+        spec=spec,
+        vault_root=tmp_path / "vault",
+        claude_home=tmp_path / ".claude",
+        state_dir=state_dir,
+    )
+    assert result.success is False
+    assert any(
+        "exist" in e.lower() or "already" in e.lower()
+        for e in result.errors
+    ), result.errors

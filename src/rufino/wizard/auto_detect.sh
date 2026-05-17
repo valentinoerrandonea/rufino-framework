@@ -11,15 +11,17 @@ if [ -z "$VAULT" ] || [ ! -d "$VAULT" ]; then
 fi
 
 # "Empty" = no .md files except possibly perfil.md / preferencias.md
-NOTE_COUNT=$(
-    find "$VAULT" -name "*.md" \
+# `-print -quit` stops find on the first match — O(1) work for non-empty vaults,
+# avoids `wc -l` enumerating thousands of notes only to discard the count.
+FIRST_NOTE=$(
+    find "$VAULT" \
+        -type f \
+        -name "*.md" \
         -not -name "perfil.md" \
         -not -name "preferencias.md" \
-        2>/dev/null \
-        | wc -l \
-        | tr -d ' '
+        -print -quit 2>/dev/null
 )
 
-if [ "$NOTE_COUNT" = "0" ]; then
+if [ -z "$FIRST_NOTE" ]; then
     echo "RUFINO HINT: Tu vault está vacío. Para armar tu sistema corré: rufino bootstrap"
 fi

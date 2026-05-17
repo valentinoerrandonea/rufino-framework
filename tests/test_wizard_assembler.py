@@ -49,3 +49,10 @@ def test_includes_all_six_patterns():
         "knowledge_graph_projects",
     ]:
         assert pattern_name in prompt, f"Pattern missing: {pattern_name}"
+
+
+def test_build_system_prompt_is_cached():
+    """Same call returns identical object (no re-read of disk on each invocation)."""
+    a = build_system_prompt()
+    b = build_system_prompt()
+    assert a is b

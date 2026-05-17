@@ -20,6 +20,7 @@ KNOWN_PATTERNS = frozenset({
 
 
 _VERTICAL_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_ENTITY_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 @dataclass(frozen=True)
@@ -97,8 +98,12 @@ def validate_spec(raw: dict[str, Any]) -> WizardSpec:
         raise SpecError(f"Unknown pattern(s) in spec: {sorted(unknown)}")
 
     entities = _require_list(raw, "entities")
-    if not all(isinstance(e, str) for e in entities):
-        raise SpecError("'entities' must be a list of strings")
+    for e in entities:
+        if not isinstance(e, str) or not _ENTITY_NAME_RE.match(e):
+            raise SpecError(
+                f"entities entries must match {_ENTITY_NAME_RE.pattern!r} "
+                f"(lowercase + digits + _ + -, starts with letter, <=64 chars), got {e!r}"
+            )
 
     sources = _require_list(raw, "sources")
     processing = _require_list(raw, "processing")
