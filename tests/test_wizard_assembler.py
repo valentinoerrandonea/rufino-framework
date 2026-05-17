@@ -36,3 +36,16 @@ def test_no_unfilled_jinja_placeholders():
     prompt = build_system_prompt()
     assert "{{" not in prompt
     assert "{%" not in prompt
+
+
+def test_includes_all_six_patterns():
+    prompt = build_system_prompt()
+    for pattern_name in [
+        "discrete_events_with_metadata",
+        "long_documents_extraction",
+        "person_centric_tracking",
+        "decision_log_with_rationale",
+        "temporal_self_observation",
+        "knowledge_graph_projects",
+    ]:
+        assert pattern_name in prompt, f"Pattern missing: {pattern_name}"
