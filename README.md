@@ -4,7 +4,7 @@
 
 ## Instalación
 
-Requisitos: macOS o Linux, Python 3.11+, Claude Code CLI instalado y autenticado.
+Requisitos: macOS o Linux, Python 3.11+, [pipx](https://pipx.pypa.io/) (`brew install pipx && pipx ensurepath`), Claude Code CLI instalado y autenticado.
 
 ```bash
 git clone https://github.com/<owner>/rufino-framework.git ~/rufino-framework
@@ -13,8 +13,8 @@ cd ~/rufino-framework
 ```
 
 El instalador:
-- Instala las dependencias Python (`pip install -e .`)
-- Registra `rufino` en tu `$PATH`
+- Instala el package en un venv aislado vía `pipx install -e .` (PEP 668 safe)
+- Registra `rufino` en tu `$PATH` (vía el bin dir de pipx)
 - Crea `~/.rufino/` con la estructura base
 - Registra el MCP server `ask-rufino` en `~/.claude.json`
 
