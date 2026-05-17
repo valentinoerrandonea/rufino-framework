@@ -1,6 +1,10 @@
 import pytest
 from pathlib import Path
-from rufino.engine.output.dispatcher import dispatch_output, OutputResult
+from rufino.engine.output.dispatcher import (
+    dispatch_output,
+    OutputResult,
+    TemplatePathError,
+)
 from rufino.engine.process.context_injectors import StubQueryLayer
 from rufino.engine.output.channels.file_channel import FileChannel
 
@@ -39,5 +43,56 @@ def test_unknown_channel_in_manifest_raises(tmp_vault: Path):
             adapter_dir=FIXTURE,
             query=query,
             channels=channels,
+            event_context={},
+        )
+
+
+class _FailingChannel:
+    def deliver(self, *, config, content):
+        raise RuntimeError("boom")
+
+
+def test_channel_delivery_failure_is_collected(tmp_vault: Path, caplog):
+    query = StubQueryLayer()
+    channels = {"file": _FailingChannel()}
+
+    import logging
+    with caplog.at_level(logging.ERROR):
+        result = dispatch_output(
+            adapter_dir=FIXTURE,
+            query=query,
+            channels=channels,
+            event_context={},
+        )
+
+    assert result.deliveries == 0
+    assert len(result.errors) == 1
+    assert "boom" in result.errors[0]
+    assert any("delivery failed" in r.message for r in caplog.records)
+
+
+def test_template_outside_adapter_dir_raises(tmp_path: Path):
+    # Build a fake adapter that points template at /etc/passwd
+    adapter = tmp_path / "evil-adapter"
+    adapter.mkdir()
+    (adapter / "manifest.yaml").write_text(
+        'adapter_name: evil\n'
+        'trigger: { type: cron, expression: "* * * * *" }\n'
+        'query: []\n'
+        'template: "./safe.md"\n'
+        'delivery: []\n'
+    )
+    # Create a real-looking template, but then symlink it to escape
+    safe = adapter / "safe.md"
+    safe.write_text("ok")
+    safe.unlink()
+    safe.symlink_to(tmp_path / "outside.md")
+    (tmp_path / "outside.md").write_text("leaked")
+
+    with pytest.raises(TemplatePathError):
+        dispatch_output(
+            adapter_dir=adapter,
+            query=StubQueryLayer(),
+            channels={},
             event_context={},
         )

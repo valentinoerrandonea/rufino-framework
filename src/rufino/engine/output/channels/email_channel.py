@@ -22,7 +22,7 @@ class EmailChannel:
 
         password = self.secrets.get("rufino-smtp", self.from_address)
 
-        with smtplib.SMTP(self.smtp_host, self.smtp_port) as s:
+        with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=30) as s:
             s.starttls()
             s.login(self.from_address, password)
             s.send_message(msg)

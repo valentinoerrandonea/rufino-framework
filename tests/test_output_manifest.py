@@ -57,3 +57,33 @@ def test_missing_template_raises():
     yaml = CRON_YAML.replace("template: ./templates/digest.md\n", "")
     with pytest.raises(ManifestParseError, match="template"):
         parse_output_manifest(yaml)
+
+
+def test_absolute_template_path_rejected():
+    yaml = CRON_YAML.replace("./templates/digest.md", "/etc/passwd")
+    with pytest.raises(ManifestParseError, match="template.*relative"):
+        parse_output_manifest(yaml)
+
+
+def test_template_with_parent_escape_rejected():
+    yaml = CRON_YAML.replace("./templates/digest.md", "../../etc/passwd")
+    with pytest.raises(ManifestParseError, match=r"template.*\.\."):
+        parse_output_manifest(yaml)
+
+
+def test_file_delivery_absolute_path_rejected():
+    yaml = CRON_YAML.replace('"general/digests/<YYYY-WW>.md"', '"/etc/passwd"')
+    with pytest.raises(ManifestParseError, match=r"delivery\[0\].path.*relative"):
+        parse_output_manifest(yaml)
+
+
+def test_file_delivery_parent_escape_rejected():
+    yaml = CRON_YAML.replace('"general/digests/<YYYY-WW>.md"', '"../../etc/passwd"')
+    with pytest.raises(ManifestParseError, match=r"delivery\[0\].path.*\.\."):
+        parse_output_manifest(yaml)
+
+
+def test_manifest_query_and_delivery_are_immutable():
+    m = parse_output_manifest(CRON_YAML)
+    with pytest.raises(TypeError):
+        m.delivery[0]["channel"] = "evil"  # type: ignore[index]

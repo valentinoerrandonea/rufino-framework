@@ -1,5 +1,7 @@
 from dataclasses import dataclass
-from typing import Any
+from pathlib import PurePosixPath, PurePath
+from types import MappingProxyType
+from typing import Any, Mapping
 import yaml
 
 
@@ -14,12 +16,30 @@ VALID_TRIGGER_TYPES = {"cron", "on_event"}
 class OutputAdapterManifest:
     adapter_name: str
     trigger_type: str
-    query: tuple[dict[str, Any], ...]
+    query: tuple[Mapping[str, Any], ...]
     template: str
-    delivery: tuple[dict[str, Any], ...]
+    delivery: tuple[Mapping[str, Any], ...]
     cron_expression: str | None = None
     event_name: str | None = None
     event_filter: str | None = None
+
+
+def _freeze(value: Any) -> Any:
+    """Recursively wrap dicts in MappingProxyType so a parsed manifest is immutable."""
+    if isinstance(value, dict):
+        return MappingProxyType({k: _freeze(v) for k, v in value.items()})
+    if isinstance(value, list):
+        return tuple(_freeze(v) for v in value)
+    return value
+
+
+def _validate_relative(path_str: str, field: str) -> None:
+    """Reject absolute or parent-escaping paths in manifest fields."""
+    if PurePath(path_str).is_absolute() or PurePosixPath(path_str).is_absolute():
+        raise ManifestParseError(f"{field} must be relative, got {path_str!r}")
+    parts = PurePosixPath(path_str).parts
+    if ".." in parts:
+        raise ManifestParseError(f"{field} must not contain '..', got {path_str!r}")
 
 
 def parse_output_manifest(yaml_text: str) -> OutputAdapterManifest:
@@ -43,12 +63,26 @@ def parse_output_manifest(yaml_text: str) -> OutputAdapterManifest:
             f"trigger.type must be in {VALID_TRIGGER_TYPES}, got {trig['type']!r}"
         )
 
+    if not isinstance(raw["template"], str):
+        raise ManifestParseError("template must be a string")
+    _validate_relative(raw["template"], "template")
+
+    if not isinstance(raw["delivery"], list):
+        raise ManifestParseError("delivery must be a list")
+    for i, d in enumerate(raw["delivery"]):
+        if not isinstance(d, dict) or "channel" not in d:
+            raise ManifestParseError(f"delivery[{i}] must be a mapping with 'channel'")
+        if d["channel"] == "file":
+            if "path" not in d or not isinstance(d["path"], str):
+                raise ManifestParseError(f"delivery[{i}].path required for file channel")
+            _validate_relative(d["path"], f"delivery[{i}].path")
+
     common = dict(
         adapter_name=raw["adapter_name"],
         trigger_type=trig["type"],
-        query=tuple(raw["query"]),
+        query=_freeze(raw["query"]),
         template=raw["template"],
-        delivery=tuple(raw["delivery"]),
+        delivery=_freeze(raw["delivery"]),
     )
 
     if trig["type"] == "cron":
