@@ -51,6 +51,24 @@ if [ "$INSTALLED" = "$CURRENT" ]; then
     exit 0
 fi
 
+# Refuse downgrades unless RUFINO_FORCE=1. Uses sort -V (version sort).
+semver_gt() {
+    # returns 0 if $1 > $2
+    [ "$1" = "$2" ] && return 1
+    local higher
+    higher="$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)"
+    [ "$higher" = "$1" ]
+}
+
+if semver_gt "$INSTALLED" "$CURRENT"; then
+    if [ "${RUFINO_FORCE:-0}" != "1" ]; then
+        echo "ERROR: refusing downgrade from $INSTALLED to $CURRENT." >&2
+        echo "       Set RUFINO_FORCE=1 to override." >&2
+        exit 1
+    fi
+    echo "==> WARN: forced downgrade $INSTALLED → $CURRENT"
+fi
+
 # --- Backup
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$RUFINO_HOME/backups/$TIMESTAMP"
