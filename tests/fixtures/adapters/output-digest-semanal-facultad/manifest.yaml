@@ -1,0 +1,9 @@
+adapter_name: digest-semanal-facultad
+trigger:
+  type: cron
+  expression: "0 18 * * 5"
+query:
+  - { name: notas_semana, expression: "created >= 7 days ago" }
+template: ./templates/digest.md
+delivery:
+  - { channel: file, path: "general/digests/W20.md" }
