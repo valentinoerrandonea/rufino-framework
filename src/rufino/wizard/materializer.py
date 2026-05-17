@@ -46,8 +46,17 @@ def materialize(
     tx_log: TransactionLog | None = None
 
     try:
+        state_dir_existed_before = state_dir.exists()
         state_dir.mkdir(parents=True, exist_ok=True)
         tx_log = TransactionLog(state_dir / f"materialize-{spec.vertical_name}.json")
+        if not state_dir_existed_before:
+            apply_and_log(
+                tx_log,
+                op="mkdir",
+                target=str(state_dir),
+                apply_fn=lambda: None,  # dir already exists; record for rollback
+                rollback="rmdir_if_empty",
+            )
 
         apply_and_log(
             tx_log, op="mkdir", target=str(vault_root),
