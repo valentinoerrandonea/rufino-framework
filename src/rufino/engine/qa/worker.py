@@ -65,9 +65,11 @@ def poll_and_dispatch(
             _log.exception("handler failed for slug=%s; leaving for retry", slug)
             continue
 
-        # Handler succeeded — drop the callback and archive the file.
-        registry.delete(slug)
+        # Mark answered BEFORE deleting the callback. If we crash between the
+        # two steps the worst case is a duplicate dispatch on retry, which is
+        # recoverable. The opposite order silently drops the user's answer.
         store.mark_answered(slug)
+        registry.delete(slug)
         dispatched += 1
 
     return dispatched
