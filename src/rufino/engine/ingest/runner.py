@@ -23,6 +23,7 @@ def run_ingest(
     adapter_dir: Path,
     vault_root: Path,
     rufino_state_dir: Path,
+    process_hook=None,
 ) -> IngestResult:
     """Run an Ingest adapter. Dispatches to mode-specific subroutine."""
     manifest = parse_ingest_manifest((adapter_dir / "manifest.yaml").read_text())
@@ -40,6 +41,7 @@ def run_ingest(
             manifest=manifest,
             vault_root=vault_root,
             rufino_state_dir=rufino_state_dir,
+            process_hook=process_hook,
         )
     raise NotImplementedError(f"output_mode {manifest.output_mode} not implemented")
 
@@ -107,6 +109,29 @@ def _run_emit_fact(
 
 
 def _run_import_raw(
-    *, adapter_dir: Path, manifest, vault_root: Path, rufino_state_dir: Path,
+    *, adapter_dir: Path, manifest, vault_root: Path, rufino_state_dir: Path, process_hook,
 ) -> IngestResult:
-    raise NotImplementedError("import_raw lands in Task 7")
+    fetcher = load_fetcher(adapter_dir)
+    cursors = CursorStore(rufino_state_dir / "cursors.json")
+
+    since = cursors.get(manifest.adapter_name)
+    items = fetcher(since=since)
+
+    inbox = vault_root / manifest.target_inbox
+    inbox.mkdir(parents=True, exist_ok=True)
+    emitted = 0
+
+    for item in items:
+        target = inbox / item["filename"]
+        target.write_text(item["content"])
+        emitted += 1
+        if manifest.trigger == "immediate" and process_hook is not None:
+            process_hook(target, vault_root, manifest.process_with)
+
+    cursors.set(manifest.adapter_name, datetime.utcnow().isoformat() + "Z")
+    return IngestResult(
+        adapter_name=manifest.adapter_name,
+        facts_emitted=emitted,
+        facts_skipped=0,
+        errors=[],
+    )

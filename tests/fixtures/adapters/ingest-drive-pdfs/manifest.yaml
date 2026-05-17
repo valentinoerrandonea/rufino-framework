@@ -1,0 +1,10 @@
+adapter_name: drive-pdfs
+source_name: drive_pdfs
+schedule: "0 */6 * * *"
+auth:
+  type: oauth2
+  keychain_service: rufino-drive
+output_mode: import_raw
+target_inbox: rufino/inbox/
+process_with: apunte-clase
+trigger: immediate
