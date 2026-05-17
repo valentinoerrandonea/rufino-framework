@@ -81,7 +81,7 @@ def _resolve_destination(vault_root: Path, dest_rel: str) -> Path:
         raise DestinationOutsideVaultError(
             f"destination {dest_rel!r} resolves outside vault {vault_root}"
         )
-    return vault_root / dest_rel
+    return dest
 
 
 def _process_full(
