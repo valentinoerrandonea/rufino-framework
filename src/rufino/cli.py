@@ -5,6 +5,7 @@ import click
 from rufino.version import VERSION
 from rufino.engine.memory_loop.installer import install_memory_loop, InstallationError
 from rufino.engine.process.dispatcher import process_note as _process_note
+from rufino.engine.ingest.runner import run_ingest
 from rufino.runtime.transaction_log import TransactionLog
 
 
@@ -61,3 +62,20 @@ def process_cmd(note_path: Path, vault_root: Path, mode: str, adapter_dir: Path 
         raise click.exceptions.Exit(code=2)
     result = _process_note(note_path=note_path, vault_root=vault_root, mode=mode)
     click.echo(f"{result.message}")
+
+
+@cli.command(name="ingest")
+@click.argument("adapter_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
+@click.option("--state-dir", "state_dir", required=True, type=click.Path(path_type=Path))
+def ingest_cmd(adapter_dir: Path, vault_root: Path, state_dir: Path) -> None:
+    """Run an Ingest adapter once."""
+    result = run_ingest(
+        adapter_dir=adapter_dir,
+        vault_root=vault_root,
+        rufino_state_dir=state_dir,
+    )
+    click.echo(
+        f"adapter={result.adapter_name} emitted={result.facts_emitted} "
+        f"skipped={result.facts_skipped} errors={len(result.errors)}"
+    )
