@@ -1,8 +1,12 @@
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-import yaml
 from jinja2 import Environment, BaseLoader, StrictUndefined
+
+from rufino.engine.process.helpers.frontmatter import (
+    parse_frontmatter,
+    FrontmatterError,
+)
 
 
 class TemplateError(Exception):
@@ -22,14 +26,13 @@ _ENV = Environment(loader=BaseLoader(), undefined=StrictUndefined, autoescape=Fa
 
 def parse_template_file(path: Path) -> QuestionTemplate:
     text = path.read_text()
-    if not text.startswith("---\n"):
-        raise TemplateError(f"Template {path} missing frontmatter")
     try:
-        _, fm_block, body = text.split("---\n", 2)
-    except ValueError:
-        raise TemplateError(f"Template {path} unterminated frontmatter")
+        fm, body = parse_frontmatter(text)
+    except FrontmatterError as e:
+        raise TemplateError(f"Template {path}: {e}") from e
+    if not fm:
+        raise TemplateError(f"Template {path} missing frontmatter")
 
-    fm = yaml.safe_load(fm_block) or {}
     for required in ("template_name", "required_context", "expected_answer"):
         if required not in fm:
             raise TemplateError(f"Template {path} missing frontmatter field: {required}")

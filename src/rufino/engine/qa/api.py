@@ -7,6 +7,10 @@ from rufino.engine.qa.store import QuestionStore
 from rufino.engine.qa.callback_registry import CallbackRegistry, PendingCallback
 
 
+class QALoopError(Exception):
+    """Raised on unsafe template_name or other API contract violations."""
+
+
 @dataclass
 class QALoopAPI:
     vault_root: Path
@@ -27,9 +31,10 @@ class QALoopAPI:
     ) -> str:
         """Render a question to the vault and register a pending callback.
 
-        Returns the question slug.
+        Returns the question slug. The same slug is later resolved by
+        `get_answer` even after the file is moved to `questions/answered/`.
         """
-        template_path = self.templates_dir / f"{template_name.replace('_', '-')}.md"
+        template_path = self._resolve_template_path(template_name)
         template = parse_template_file(template_path)
 
         body = render_question(template, context=context)
@@ -47,4 +52,20 @@ class QALoopAPI:
         return slug
 
     def get_answer(self, slug: str) -> str | None:
+        """Return the user's answer, or None if still pending.
+
+        Reads from `questions/<slug>.md` first; falls back to
+        `questions/answered/<slug>.md` after the worker has moved the file.
+        """
         return self._store.get_answer(slug)
+
+    def _resolve_template_path(self, template_name: str) -> Path:
+        candidate = (
+            self.templates_dir / f"{template_name.replace('_', '-')}.md"
+        ).resolve()
+        root = self.templates_dir.resolve()
+        if root != candidate and root not in candidate.parents:
+            raise QALoopError(
+                f"template_name escapes templates_dir: {template_name!r}"
+            )
+        return candidate
