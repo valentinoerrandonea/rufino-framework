@@ -3,7 +3,7 @@
 Trae data de fuentes externas y la normaliza al vault. Tres `output_mode`:
 - `emit_fact`: records atómicos en `<source>/facts/`
 - `import_raw`: docs largos al inbox (dispara Process inmediato por default)
-- `emit_augmented`: streaming directo a Process (deferido a v1.1)
+- `emit_augmented`: streaming directo a Process — el manifest se acepta y valida, pero el dispatcher inline está **deferido a v1.1** (el adapter no corre todavía).
 
 ## Manifest schema
 
@@ -27,7 +27,10 @@ target_inbox: <relative-path>
 process_with: <process-adapter-name>
 trigger: immediate | defer       # default: immediate
 
-# optional:
+# emit_augmented-specific:
+process_inline_with: <process-adapter-name>     # required
+
+# optional (parsed but execution deferred — see worker-adapter.md):
 transform_hook: ./transform.py
 ```
 

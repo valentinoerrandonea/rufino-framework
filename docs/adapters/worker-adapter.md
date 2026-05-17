@@ -18,9 +18,9 @@ Cada primitive define los campos requeridos. Ver `docs/primitives/<name>.md` par
 
 ## transform.py
 
-Opcional. Si declarado en el manifest, corre en sandbox después del LLM call (Process) o después del fetch (Ingest).
+Opcional. **Deferido a un plan futuro**: el manifest acepta y parsea el campo `transform_hook`, pero el framework v1 todavía no invoca el script. Si lo declarás hoy, no se ejecuta.
 
-Firma única: `transform(input: dict) → dict`. Input vía stdin JSON, output vía stdout JSON.
+Cuando se implemente, la firma planificada es `transform(input: dict) → dict` corriendo en sandbox (input por stdin JSON, output por stdout JSON), después del LLM call en Process o del fetch en Ingest.
 
 ## Validación
 

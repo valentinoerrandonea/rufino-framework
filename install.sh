@@ -60,10 +60,11 @@ case "$SHELL_NAME" in
     *)    RC="" ;;
 esac
 
-PATH_LINE="export PATH=\"$BIN_DIR:\$PATH\"  # rufino-framework"
+PATH_MARKER="# rufino-framework"
+PATH_LINE="export PATH=\"$BIN_DIR:\$PATH\"  $PATH_MARKER"
 
 if [ -n "$RC" ]; then
-    if ! grep -qF "$BIN_DIR" "$RC" 2>/dev/null; then
+    if ! grep -qF "$PATH_MARKER" "$RC" 2>/dev/null; then
         echo "==> Adding $BIN_DIR to PATH in $RC"
         echo "" >> "$RC"
         echo "$PATH_LINE" >> "$RC"

@@ -29,7 +29,18 @@ fi
 RUFINO_BIN="$BIN_DIR/rufino"
 
 INSTALLED="$(cat "$VERSION_FILE")"
-CURRENT="$("$RUFINO_BIN" version 2>/dev/null || python3 -c 'from rufino.version import VERSION; print(VERSION)')"
+
+if [ ! -x "$RUFINO_BIN" ]; then
+    echo "ERROR: $RUFINO_BIN missing. Run ./install.sh to reinstall." >&2
+    exit 1
+fi
+
+CURRENT="$("$RUFINO_BIN" version 2>/dev/null || true)"
+if ! [[ "$CURRENT" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9]+)*$ ]]; then
+    echo "ERROR: could not read framework version from $RUFINO_BIN (got: '$CURRENT')" >&2
+    echo "       Reinstall via ./install.sh before upgrading." >&2
+    exit 1
+fi
 
 echo "==> Rufino Framework upgrade"
 echo "    installed: $INSTALLED"
@@ -46,7 +57,7 @@ BACKUP_DIR="$RUFINO_HOME/backups/$TIMESTAMP"
 echo "==> Backing up $RUFINO_HOME to $BACKUP_DIR"
 mkdir -p "$BACKUP_DIR"
 # Exclude backups/ to avoid recursive copy
-find "$RUFINO_HOME" -maxdepth 1 -mindepth 1 ! -name backups -exec cp -r {} "$BACKUP_DIR/" \;
+find "$RUFINO_HOME" -maxdepth 1 -mindepth 1 ! -name backups -exec cp -a {} "$BACKUP_DIR/" \;
 
 # --- Reinstall Python package via pipx
 echo "==> Reinstalling Rufino into pipx venv"
@@ -61,7 +72,7 @@ touch "$APPLIED_FILE"
 for migration in "$MIGRATIONS_DIR"/*.sh; do
     [ -f "$migration" ] || continue  # no migrations yet
     name="$(basename "$migration")"
-    if grep -qF "$name" "$APPLIED_FILE"; then
+    if grep -qxF "$name" "$APPLIED_FILE"; then
         echo "    skip $name (already applied)"
         continue
     fi

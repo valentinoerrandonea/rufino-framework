@@ -36,18 +36,20 @@ Claude Code en cualquier proyecto, recibí los digests por email.
 
 ## Comandos disponibles
 
+Para ver flags completos en cualquier comando: `rufino <cmd> --help`.
+
 | Comando | Para qué sirve |
 |---|---|
 | `rufino bootstrap` | Iniciar el wizard conversacional |
 | `rufino version` | Imprimir la versión instalada |
-| `rufino ingest <adapter>` | Correr un Ingest adapter una vez |
+| `rufino ingest <adapter_dir> --vault X --state-dir Y` | Correr un Ingest adapter una vez |
 | `rufino process <note> --vault X --mode light` | Procesar una nota (light mode) |
-| `rufino output <adapter>` | Correr un Output adapter una vez |
-| `rufino query "..." --vault X` | Buscar en el vault |
+| `rufino output <adapter_dir> --vault X` | Correr un Output adapter una vez |
+| `rufino query "..." --vault X --mode hybrid` | Buscar en el vault |
 | `rufino qa-poll --vault X --state-dir Y` | Procesar respuestas a preguntas |
 | `rufino mcp-server --vault X` | Levantar MCP server stdio |
 | `rufino install-memory-loop <adapter_dir> --vault X --claude-home Y` | Instalar un Memory loop adapter |
-| `rufino materialize --spec <file> ...` | Materializar un vault desde una WizardSpec JSON |
+| `rufino materialize --spec <file> --vault X --claude-home Y --state-dir Z` | Materializar un vault desde una WizardSpec JSON |
 
 ## Upgrade
 
