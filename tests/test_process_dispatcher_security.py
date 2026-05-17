@@ -118,3 +118,16 @@ def test_resolve_destination_rejects_traversal_via_resolved_check(tmp_path):
     vault.mkdir()
     with pytest.raises(DestinationOutsideVaultError):
         _resolve_destination(vault, "../escape.md")
+
+
+def test_note_body_with_context_placeholder_is_not_substituted():
+    """Body containing {{context.X}} must not consume context fields."""
+    from rufino.engine.process.dispatcher import _render_prompt
+    template = "Body: {{note_body}} | secret: {{context.api_key}}"
+    body = "harmless {{context.api_key}} text"  # injection attempt
+    context = {"api_key": "SHOULD_NOT_LEAK_VIA_BODY"}
+    rendered = _render_prompt(template=template, body=body, context=context)
+    # The body's literal {{context.api_key}} must remain literal.
+    assert "harmless {{context.api_key}} text" in rendered
+    # The template's own placeholder substitutes once.
+    assert "SHOULD_NOT_LEAK_VIA_BODY" in rendered
