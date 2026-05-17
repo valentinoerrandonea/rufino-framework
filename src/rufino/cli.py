@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import click
@@ -13,6 +14,9 @@ from rufino.engine.qa.worker import poll_and_dispatch
 from rufino.engine.query.api import QueryLayer
 from rufino.mcp_server.server import build_server
 from rufino.runtime.transaction_log import TransactionLog
+from rufino.wizard.materializer import materialize
+from rufino.wizard.spec_schema import SpecError, validate_spec
+from rufino.wizard.system_prompt_assembler import build_system_prompt
 
 
 class _NoopEmbeddings:
@@ -169,3 +173,64 @@ def mcp_server_cmd(vault_root: Path, rebuild: bool) -> None:
             await server.run(read, write, server.create_initialization_options())
 
     asyncio.run(_main())
+
+
+@cli.command(name="bootstrap")
+@click.option("--dry-run", is_flag=True,
+              help="Print system prompt to stdout instead of launching claude")
+def bootstrap_cmd(dry_run: bool) -> None:
+    """Start the conversational wizard."""
+    system_prompt = build_system_prompt()
+    if dry_run:
+        click.echo(system_prompt)
+        return
+    import shutil
+    import subprocess
+    if shutil.which("claude") is None:
+        click.echo(
+            "Error: 'claude' CLI no encontrado en PATH. "
+            "Instalalo y volvé a correr `rufino bootstrap`.",
+            err=True,
+        )
+        raise click.exceptions.Exit(code=127)
+    proc = subprocess.run(
+        [
+            "claude", "-p", system_prompt,
+            "--allowedTools",
+            "Bash(rufino materialize:*),Bash(rufino query:*),Read,Write",
+        ],
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise click.exceptions.Exit(code=proc.returncode)
+
+
+@cli.command(name="materialize")
+@click.option("--spec", "spec_path", required=True,
+              type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
+@click.option("--claude-home", "claude_home", required=True, type=click.Path(path_type=Path))
+@click.option("--state-dir", "state_dir", required=True, type=click.Path(path_type=Path))
+def materialize_cmd(
+    spec_path: Path, vault_root: Path, claude_home: Path, state_dir: Path,
+) -> None:
+    """Materialize the system described in a WizardSpec JSON file."""
+    raw = json.loads(spec_path.read_text(encoding="utf-8"))
+    try:
+        spec = validate_spec(raw)
+    except SpecError as e:
+        click.echo(f"Spec validation failed: {e}", err=True)
+        raise click.exceptions.Exit(code=1)
+
+    result = materialize(
+        spec=spec,
+        vault_root=vault_root.expanduser().resolve(),
+        claude_home=claude_home.expanduser().resolve(),
+        state_dir=state_dir.expanduser().resolve(),
+    )
+
+    if not result.success:
+        for err in result.errors:
+            click.echo(f"ERROR: {err}", err=True)
+        raise click.exceptions.Exit(code=2)
+    click.echo(f"Vault materialized at {result.vault_path}")
