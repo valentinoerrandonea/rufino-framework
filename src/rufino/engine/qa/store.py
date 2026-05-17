@@ -16,7 +16,7 @@ class QuestionStore:
 
     def __init__(self, questions_dir: Path) -> None:
         self._dir = questions_dir
-        (questions_dir / "answered").mkdir(exist_ok=True)
+        (questions_dir / "answered").mkdir(parents=True, exist_ok=True)
 
     def write_question(self, *, slug: str, template_name: str, body: str) -> str:
         path = self._dir / f"{slug}.md"
