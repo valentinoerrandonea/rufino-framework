@@ -37,6 +37,7 @@ def install_memory_loop_cmd(adapter_dir: Path, vault_path: Path, claude_home: Pa
             log=tx_log,
         )
     except InstallationError as e:
+        tx_log.rollback()
         click.echo(f"Error: {e}", err=True)
         raise click.exceptions.Exit(code=1)
     click.echo(f"Adapter '{adapter_dir.name}' installed to {claude_home}")

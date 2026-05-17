@@ -2,7 +2,11 @@ from pathlib import Path
 
 from rufino.engine.memory_loop.manifest import parse_manifest, ManifestParseError
 from rufino.engine.memory_loop.validator import VerticalConfigValidator
-from rufino.runtime.transaction_log import TransactionLog, apply_and_log
+from rufino.runtime.transaction_log import (
+    TransactionLog,
+    apply_and_log,
+    register_rollback,
+)
 
 
 class InstallationError(Exception):
@@ -10,6 +14,24 @@ class InstallationError(Exception):
 
 
 _HOOKS_PKG_DIR = Path(__file__).parent / "hooks"
+_HEREDOC_MARKER = "RUFINO_RULES_EOF"
+
+
+def _rmdir_if_empty(target: str) -> None:
+    """Rollback for installer-created directories.
+
+    Unlike the generic ``rmdir`` handler (which uses ``shutil.rmtree``),
+    this leaves the directory in place if it has gained content from
+    outside the installer's own log — preventing collateral damage to
+    files an external tool may have dropped into ``~/.claude/hooks/``
+    between install and rollback.
+    """
+    p = Path(target)
+    if p.is_dir() and not any(p.iterdir()):
+        p.rmdir()
+
+
+register_rollback("rmdir_if_empty", _rmdir_if_empty)
 
 
 def _hook_template(name: str) -> str:
@@ -19,6 +41,22 @@ def _hook_template(name: str) -> str:
 def _write_executable(target: Path, content: str) -> None:
     target.write_text(content)
     target.chmod(0o755)
+
+
+def _read_rule(adapter_dir: Path, rule_rel: str) -> str:
+    """Read a rule extension after checking it stays inside adapter_dir."""
+    adapter_root = adapter_dir.resolve()
+    rule_path = (adapter_dir / rule_rel).resolve()
+    try:
+        rule_path.relative_to(adapter_root)
+    except ValueError:
+        raise InstallationError(
+            f"rule_extensions entry {rule_rel!r} escapes adapter_dir "
+            f"(resolved to {rule_path})"
+        )
+    if not rule_path.exists():
+        raise InstallationError(f"Rule extension not found: {rule_path}")
+    return rule_path.read_text()
 
 
 def install_memory_loop(
@@ -56,6 +94,19 @@ def install_memory_loop(
     if not validation.ok:
         raise InstallationError(f"Validation failed:\n{validation.report()}")
 
+    rules_concat = ""
+    for rule_rel in manifest.rule_extensions:
+        rules_concat += _read_rule(adapter_dir, rule_rel) + "\n\n"
+
+    # Quoted heredoc would otherwise terminate early if a rule contains the
+    # marker on a line by itself — and everything after would be parsed as bash.
+    for line in rules_concat.splitlines():
+        if line.strip() == _HEREDOC_MARKER:
+            raise InstallationError(
+                f"Rule content contains reserved heredoc marker "
+                f"{_HEREDOC_MARKER!r} on a line by itself"
+            )
+
     hooks_dir = claude_home / "hooks"
     commands_dir = claude_home / "commands"
     for d in (hooks_dir, commands_dir):
@@ -65,15 +116,8 @@ def install_memory_loop(
                 op="mkdir",
                 target=str(d),
                 apply_fn=lambda d=d: d.mkdir(parents=True),
-                rollback="rmdir",
+                rollback="rmdir_if_empty",
             )
-
-    rules_concat = ""
-    for rule_rel in manifest.rule_extensions:
-        rule_path = (adapter_dir / rule_rel).resolve()
-        if not rule_path.exists():
-            raise InstallationError(f"Rule extension not found: {rule_path}")
-        rules_concat += rule_path.read_text() + "\n\n"
 
     init_template = _hook_template("hook_init.sh")
     init_rendered = (

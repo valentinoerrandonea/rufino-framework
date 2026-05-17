@@ -41,3 +41,38 @@ def test_install_memory_loop_cli_fails_on_bad_manifest(tmp_path: Path, tmp_vault
         ],
     )
     assert result.exit_code != 0
+
+
+def test_install_memory_loop_cli_rolls_back_on_mid_install_failure(
+    tmp_path: Path, tmp_vault: Path
+):
+    """If install fails after some artifacts were written, the CLI must
+    roll them back automatically — no orphaned hooks in ~/.claude/."""
+    # Adapter that passes manifest validation but references a missing rule,
+    # so the failure happens AFTER directories may have been created.
+    adapter = tmp_path / "partial-adapter"
+    adapter.mkdir()
+    (adapter / "manifest.yaml").write_text(
+        "adapter_name: partial\n"
+        "vertical_name: x\n"
+        "entity_types: [a]\n"
+        "note_destinations:\n"
+        "  a: x/<slug>.md\n"
+        "rule_extensions:\n"
+        "  - ./rules/missing.md\n"
+    )
+    claude_home = tmp_path / ".claude"
+    claude_home.mkdir()
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli,
+        [
+            "install-memory-loop", str(adapter),
+            "--vault", str(tmp_vault),
+            "--claude-home", str(claude_home),
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert not (claude_home / "hooks" / "rufino-memory-loop-init.sh").exists()
