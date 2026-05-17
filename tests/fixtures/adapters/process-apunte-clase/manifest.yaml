@@ -1,0 +1,21 @@
+adapter_name: apunte-clase
+note_type: apunte_clase
+applies_when:
+  source_dir: inbox/
+  matches_pattern: ["*.md", "*.txt"]
+llm: sonnet
+mode_default: full
+output_schema:
+  required:
+    materia: { type: string }
+    topics: list[str]
+  optional:
+    profesor: persona_ref
+triple_vocabulary: [tema-de, expuesto-por]
+tag_axes:
+  - { axis: materia, format: "materia/<slug>", required: true }
+  - { axis: tema, format: "tema/<slug>", min: 1 }
+destination_path: "apuntes/{materia}/{slug}.md"
+qa_triggers: []
+context_injectors:
+  - { name: apuntes_previos, query: "tag=materia/<materia>" }
