@@ -117,3 +117,31 @@ def test_emit_fact_fetcher_receives_cursor_on_second_run(tmp_vault: Path, tmp_pa
     data = _json.loads((state / "cursors.json").read_text(encoding="utf-8"))
     assert "ca" in data
     assert data["ca"].endswith("Z")
+
+
+def test_emit_fact_marks_seen_when_raw_write_fails(tmp_vault: Path, tmp_path: Path, monkeypatch):
+    """If raw write fails after fact write succeeded, the fact must still be
+    marked seen so the next run does not re-emit a duplicate."""
+    adapter = tmp_path / "raw-adapter"
+    _write_belo_like_adapter(adapter, "f1")
+
+    real_write_text = Path.write_text
+    raw_calls = {"n": 0}
+    def maybe_fail(self, *a, **kw):
+        if str(self).endswith(".json"):
+            raw_calls["n"] += 1
+            raise OSError("simulated disk full on raw write")
+        return real_write_text(self, *a, **kw)
+    monkeypatch.setattr(Path, "write_text", maybe_fail)
+
+    result1 = run_ingest(
+        adapter_dir=adapter, vault_root=tmp_vault, rufino_state_dir=tmp_path / "state",
+    )
+    assert result1.errors, "raw write should have failed"
+    monkeypatch.setattr(Path, "write_text", real_write_text)
+
+    # Second run with raw write working must NOT re-emit f1.
+    result2 = run_ingest(
+        adapter_dir=adapter, vault_root=tmp_vault, rufino_state_dir=tmp_path / "state",
+    )
+    assert result2.facts_emitted == 0, "fact was re-emitted; orphan bug"
