@@ -157,16 +157,14 @@ def test_validate_spec_rejects_invalid_vocabulary_key_chars():
         validate_spec(bad)
 
 
-def test_validate_spec_rejects_vocabulary_key_with_special_chars_when_entity_valid():
-    """If somehow a bad-shaped key sneaks into vocabulary, reject it independently."""
+def test_validate_spec_rejects_vocabulary_key_with_uppercase_when_entity_valid():
+    """If a vocabulary key carries uppercase, validate_spec must reject it
+    (either in the entities check or in the vocabulary key check)."""
     bad = dict(VALID_SPEC)
     bad["vocabulary"] = {
         **VALID_SPEC["vocabulary"],
-        "with-dash-and-uppercase": "x/<slug>.md",
+        "BadKey": "x/<slug>.md",
     }
-    bad["entities"] = list(VALID_SPEC["entities"]) + ["with-dash-and-uppercase"]
-    # Even if entities is permissive, the vocab key validator should catch
-    # uppercase. (entity name regex disallows uppercase, so this should raise
-    # in entities check, but the test pins the behavior either way.)
+    bad["entities"] = list(VALID_SPEC["entities"]) + ["BadKey"]
     with pytest.raises(SpecError):
         validate_spec(bad)
