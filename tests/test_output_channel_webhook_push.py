@@ -41,6 +41,20 @@ def test_push_invokes_notify_send_on_linux():
         )
         cmd = mock_run.call_args[0][0]
         assert cmd[0] == "notify-send"
+        assert "--" in cmd
+
+
+def test_push_linux_blocks_flag_injection():
+    ch = PushChannel(platform="Linux")
+    with patch("subprocess.run") as mock_run:
+        ch.deliver(
+            config={"title": "--icon=/etc/passwd"},
+            content="x",
+        )
+        cmd = mock_run.call_args[0][0]
+        sep_idx = cmd.index("--")
+        # title must appear AFTER the -- separator so notify-send doesn't parse it as a flag
+        assert cmd.index("--icon=/etc/passwd") > sep_idx
 
 
 def test_webhook_rejects_file_scheme():

@@ -87,3 +87,21 @@ def test_manifest_query_and_delivery_are_immutable():
     m = parse_output_manifest(CRON_YAML)
     with pytest.raises(TypeError):
         m.delivery[0]["channel"] = "evil"  # type: ignore[index]
+
+
+def test_query_item_missing_name_rejected():
+    yaml = CRON_YAML.replace(
+        "{ name: notas_semana, expression: \"created >= 7 days ago\" }",
+        "{ expression: \"x\" }",
+    )
+    with pytest.raises(ManifestParseError, match=r"query\[0\].name"):
+        parse_output_manifest(yaml)
+
+
+def test_query_item_missing_expression_rejected():
+    yaml = CRON_YAML.replace(
+        "{ name: notas_semana, expression: \"created >= 7 days ago\" }",
+        "{ name: foo }",
+    )
+    with pytest.raises(ManifestParseError, match=r"query\[0\].expression"):
+        parse_output_manifest(yaml)

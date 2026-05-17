@@ -67,6 +67,16 @@ def parse_output_manifest(yaml_text: str) -> OutputAdapterManifest:
         raise ManifestParseError("template must be a string")
     _validate_relative(raw["template"], "template")
 
+    if not isinstance(raw["query"], list):
+        raise ManifestParseError("query must be a list")
+    for i, q in enumerate(raw["query"]):
+        if not isinstance(q, dict):
+            raise ManifestParseError(f"query[{i}] must be a mapping")
+        if not isinstance(q.get("name"), str) or not q["name"]:
+            raise ManifestParseError(f"query[{i}].name must be a non-empty string")
+        if not isinstance(q.get("expression"), str) or not q["expression"]:
+            raise ManifestParseError(f"query[{i}].expression must be a non-empty string")
+
     if not isinstance(raw["delivery"], list):
         raise ManifestParseError("delivery must be a list")
     for i, d in enumerate(raw["delivery"]):

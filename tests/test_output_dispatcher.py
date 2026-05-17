@@ -71,6 +71,30 @@ def test_channel_delivery_failure_is_collected(tmp_vault: Path, caplog):
     assert any("delivery failed" in r.message for r in caplog.records)
 
 
+def test_render_failure_returns_errors_not_raises(tmp_path: Path):
+    """A jinja UndefinedError must end up in result.errors, not crash the dispatcher."""
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    (adapter / "manifest.yaml").write_text(
+        'adapter_name: bad-template\n'
+        'trigger: { type: cron, expression: "0 * * * *" }\n'
+        'query: []\n'
+        'template: "./t.md"\n'
+        'delivery: []\n'
+    )
+    (adapter / "t.md").write_text("hola {{ event.does_not_exist }}")
+
+    result = dispatch_output(
+        adapter_dir=adapter,
+        query=StubQueryLayer(),
+        channels={},
+        event_context={},
+    )
+    assert result.deliveries == 0
+    assert len(result.errors) == 1
+    assert result.errors[0].startswith("render:")
+
+
 def test_template_outside_adapter_dir_raises(tmp_path: Path):
     # Build a fake adapter that points template at /etc/passwd
     adapter = tmp_path / "evil-adapter"

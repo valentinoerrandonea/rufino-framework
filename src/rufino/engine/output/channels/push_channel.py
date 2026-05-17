@@ -22,7 +22,7 @@ class PushChannel:
                 f'display notification "{safe_content}" with title "{safe_title}"',
             ]
         elif self.platform == "Linux":
-            cmd = ["notify-send", title, content]
+            cmd = ["notify-send", "--", title, content]
         else:
             raise NotImplementedError(f"No push backend for {self.platform!r}")
         subprocess.run(cmd, check=True)

@@ -41,13 +41,22 @@ def dispatch_output(
         raise TemplatePathError(
             f"template path escapes adapter_dir: {manifest.template!r}"
         )
-    template_text = template_path.read_text()
 
-    results: dict[str, list[str]] = {}
-    for q in manifest.query:
-        results[q["name"]] = query.run(q["expression"])
-
-    content = render_template(template=template_text, query=results, event=event_context)
+    try:
+        template_text = template_path.read_text()
+        results: dict[str, list[str]] = {}
+        for q in manifest.query:
+            results[q["name"]] = query.run(q["expression"])
+        content = render_template(
+            template=template_text, query=results, event=event_context
+        )
+    except Exception as e:
+        _log.exception("Template render failed for adapter %s", manifest.adapter_name)
+        return OutputResult(
+            adapter_name=manifest.adapter_name,
+            deliveries=0,
+            errors=[f"render: {e}"],
+        )
 
     deliveries = 0
     errors: list[str] = []
