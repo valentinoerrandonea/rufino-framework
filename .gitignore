@@ -12,3 +12,16 @@ node_modules/
 secrets/
 *.pem
 *.key
+
+# Python (rufino-framework)
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
