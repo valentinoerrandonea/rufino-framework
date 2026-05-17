@@ -6,6 +6,9 @@ from rufino.version import VERSION
 from rufino.engine.memory_loop.installer import install_memory_loop, InstallationError
 from rufino.engine.process.dispatcher import process_note as _process_note
 from rufino.engine.ingest.runner import run_ingest
+from rufino.engine.output.dispatcher import dispatch_output
+from rufino.engine.output.channels.file_channel import FileChannel
+from rufino.engine.process.context_injectors import StubQueryLayer
 from rufino.runtime.transaction_log import TransactionLog
 
 
@@ -81,3 +84,21 @@ def ingest_cmd(adapter_dir: Path, vault_root: Path, state_dir: Path) -> None:
     )
     for err in result.errors:
         click.echo(f"  error: {err}", err=True)
+
+
+@cli.command(name="output")
+@click.argument("adapter_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
+def output_cmd(adapter_dir: Path, vault_root: Path) -> None:
+    """Run an Output adapter once (uses stub Query layer in v1)."""
+    channels = {"file": FileChannel(vault_root=vault_root)}
+    result = dispatch_output(
+        adapter_dir=adapter_dir,
+        query=StubQueryLayer(),
+        channels=channels,
+        event_context={},
+    )
+    click.echo(
+        f"adapter={result.adapter_name} deliveries={result.deliveries} "
+        f"errors={len(result.errors)}"
+    )
