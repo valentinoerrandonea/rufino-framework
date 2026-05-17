@@ -69,6 +69,30 @@ def materialize(
             apply_fn=lambda: questions_dir.mkdir(),
             rollback="rmdir",
         )
+        inbox_dir = vault_root / "inbox"
+        apply_and_log(
+            tx_log, op="mkdir", target=str(inbox_dir),
+            apply_fn=lambda: inbox_dir.mkdir(),
+            rollback="rmdir",
+        )
+        meta_dir = vault_root / "_meta"
+        apply_and_log(
+            tx_log, op="mkdir", target=str(meta_dir),
+            apply_fn=lambda: meta_dir.mkdir(),
+            rollback="rmdir",
+        )
+        tags_md = meta_dir / "_tags.md"
+        apply_and_log(
+            tx_log, op="write", target=str(tags_md),
+            apply_fn=lambda: tags_md.write_text("# Tags\n", encoding="utf-8"),
+            rollback="delete",
+        )
+        proc_log_md = meta_dir / "_processing-log.md"
+        apply_and_log(
+            tx_log, op="write", target=str(proc_log_md),
+            apply_fn=lambda: proc_log_md.write_text("# Processing log\n", encoding="utf-8"),
+            rollback="delete",
+        )
         perfil = vault_root / "perfil.md"
         perfil_content = (
             f"---\ntags: [tipo/perfil, vertical/{spec.vertical_name}]\n---\n"

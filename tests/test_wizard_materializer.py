@@ -173,3 +173,18 @@ def test_materialize_preserves_pre_existing_state_dir_on_failure(tmp_path: Path,
     # We did NOT create state_dir → must NOT be rolled back.
     assert state_dir.exists()
     assert (state_dir / "foreign.txt").read_text() == "user content"
+
+
+def test_materialize_creates_operational_vault_dirs_and_meta_files(tmp_path: Path):
+    spec = validate_spec(MINIMAL_SPEC)
+    vault = tmp_path / "vault"
+    result = materialize(
+        spec=spec,
+        vault_root=vault,
+        claude_home=tmp_path / ".claude",
+        state_dir=tmp_path / ".rufino-state",
+    )
+    assert result.success, result.errors
+    assert (vault / "inbox").is_dir()
+    assert (vault / "_meta" / "_tags.md").exists()
+    assert (vault / "_meta" / "_processing-log.md").exists()
