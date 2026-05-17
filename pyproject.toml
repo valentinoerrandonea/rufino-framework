@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rufino-framework"
+version = "0.0.1"
+description = "Meta-arquitectura A2P para dominios de conocimiento personal"
+requires-python = ">=3.11"
+authors = [{ name = "Valentino Errandonea" }]
+dependencies = [
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "keyring>=24.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "pytest-cov>=4.1"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
