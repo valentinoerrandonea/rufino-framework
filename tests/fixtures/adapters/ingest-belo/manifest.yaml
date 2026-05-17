@@ -1,0 +1,17 @@
+adapter_name: belo
+source_name: belo
+schedule: "*/30 * * * *"
+auth:
+  type: oauth2
+  keychain_service: rufino-belo-oauth
+output_mode: emit_fact
+emits: [transaccion]
+fact_schema:
+  id: string
+  monto: number
+  moneda: enum[ARS, USD, USDT]
+  fecha: datetime
+destination:
+  facts: belo/facts/<YYYY-MM-DD>-<id>.md
+  raw: belo/raw/<id>.json
+dedup_by: id
