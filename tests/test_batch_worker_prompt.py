@@ -51,6 +51,7 @@ def test_prompt_contains_all_three_blocks(tmp_path):
         vault_slug="my-vault",
         staging_dir=staging_dir,
         vault_concepts_top_n=[],
+        run_id="r1",
     )
 
     assert "worker de Rufino" in prompt
@@ -61,6 +62,10 @@ def test_prompt_contains_all_three_blocks(tmp_path):
     assert "ASK-USER" in prompt
     assert "be rigorous about triples." in prompt
     assert "ask-rufino-my-vault" in prompt
+    assert "tema-de" in prompt
+    assert "extiende" in prompt
+    assert "title: string" in prompt
+    assert "materia: string" in prompt
 
 
 def test_prompt_includes_top_concepts_when_provided(tmp_path):
@@ -76,6 +81,7 @@ def test_prompt_includes_top_concepts_when_provided(tmp_path):
         vault_slug="v",
         staging_dir=tmp_path / "s",
         vault_concepts_top_n=["dfs", "bfs", "grafos"],
+        run_id="r1",
     )
     assert "dfs" in prompt
     assert "bfs" in prompt

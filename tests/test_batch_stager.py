@@ -145,3 +145,18 @@ def test_stage_corrupt_zip_raises(tmp_path):
     run_dir = tmp_path / "run"
     with pytest.raises(StagingError, match="zip"):
         stage_corpus(bad, run_dir)
+
+
+def test_stage_zip_slip_entries_are_skipped(tmp_path):
+    zip_path = tmp_path / "evil.zip"
+    _make_zip(zip_path, {
+        "../escape.md": b"# escape\n",
+        "math/legit.md": b"# legit\n",
+    })
+
+    run_dir = tmp_path / "run"
+    staged = stage_corpus(zip_path, run_dir)
+
+    assert not (run_dir.parent / "escape.md").exists()
+    assert (run_dir / "inbox" / "math" / "legit.md").exists()
+    assert any("escape.md" in str(p) for p in staged.skipped)

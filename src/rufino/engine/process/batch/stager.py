@@ -40,17 +40,22 @@ def _fix_zip_name(name: str) -> str:
         return name
 
 
-def _extract_zip(zip_path: Path, dest: Path) -> None:
+def _extract_zip(zip_path: Path, dest: Path, skipped: list[Path]) -> None:
     try:
         zf = zipfile.ZipFile(zip_path)
     except zipfile.BadZipFile as e:
         raise StagingError(f"corrupt zip {zip_path}: {e}") from e
+    dest_resolved = dest.resolve()
     with zf:
         for info in zf.infolist():
             if info.is_dir():
                 continue
             corrected = _fix_zip_name(info.filename)
-            target = dest / corrected
+            target = (dest / corrected).resolve()
+            if not target.is_relative_to(dest_resolved):
+                log.warning("skipping zip entry with unsafe path: %r", info.filename)
+                skipped.append(Path(info.filename))
+                continue
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, open(target, "wb") as out:
                 shutil.copyfileobj(src, out)
@@ -89,11 +94,12 @@ def stage_corpus(source: Path, run_dir: Path) -> StagedCorpus:
 
     Returns a StagedCorpus mapping group → list of staged Paths inside run_dir.
     """
+    staged = StagedCorpus()
     corpus_root: Path
     if source.is_file() and source.suffix.lower() == ".zip":
         extracted_temp = run_dir / "_extracted"
         extracted_temp.mkdir(parents=True, exist_ok=True)
-        _extract_zip(source, extracted_temp)
+        _extract_zip(source, extracted_temp, staged.skipped)
         corpus_root = extracted_temp
     elif source.is_dir():
         corpus_root = source
@@ -103,7 +109,6 @@ def stage_corpus(source: Path, run_dir: Path) -> StagedCorpus:
     inbox_root = run_dir / "inbox"
     inbox_root.mkdir(parents=True, exist_ok=True)
 
-    staged = StagedCorpus()
     for file in sorted(corpus_root.rglob("*")):
         if not file.is_file():
             continue

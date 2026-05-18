@@ -52,6 +52,12 @@ ni deltas/<slug>.json para esa nota. Escribí en su lugar:
 
 ASK-USER marker (usalo SOLO cuando un qa_trigger del adapter aplique).
 
+Vocabulario permitido de triples (cualquier otro lo rechazo y te hago retry):
+{vocab_block}
+
+Required fields del output_schema (todos deben aparecer en el frontmatter):
+{required_block}
+
 Tipos de errores típicos a evitar:
   - triples con relaciones fuera del vocabulario (te las rechazo y te hago retry)
   - frontmatter sin los required fields del output_schema
@@ -79,15 +85,25 @@ def build_worker_system_prompt(
     vault_slug: str,
     staging_dir: Path,
     vault_concepts_top_n: list[str],
-    run_id: str = "",
+    run_id: str,
 ) -> str:
     note_lines = "\n".join(f"  - {p}" for p in assignment.notes)
+    vocab_block = "\n".join(f"  - {r}" for r in manifest.triple_vocabulary) or "  (ninguno)"
+    required_fields = manifest.output_schema.get("required", {})
+    if required_fields:
+        required_block = "\n".join(
+            f"  - {name}: {ftype}" for name, ftype in required_fields.items()
+        )
+    else:
+        required_block = "  (ninguno)"
     preamble = _PREAMBLE_TEMPLATE.format(
         worker_id=assignment.worker_id,
         group=assignment.group,
         note_lines=note_lines,
         staging_dir=staging_dir,
         run_id=run_id,
+        vocab_block=vocab_block,
+        required_block=required_block,
     )
     concepts_block = ""
     if vault_concepts_top_n:
