@@ -26,6 +26,7 @@ class WorkerAdapterManifest:
     qa_triggers: tuple[Mapping[str, Any], ...]
     context_injectors: tuple[Mapping[str, Any], ...]
     transform_hook: str | None = None
+    batch_size: int = 10
 
 
 _REQUIRED = (
@@ -76,6 +77,16 @@ def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
             f"destination_path must be relative, got absolute {raw['destination_path']!r}"
         )
 
+    batch_size_raw = raw.get("batch_size", 10)
+    if not isinstance(batch_size_raw, int) or isinstance(batch_size_raw, bool):
+        raise ManifestParseError(
+            f"batch_size must be a positive integer, got {batch_size_raw!r}"
+        )
+    if batch_size_raw < 1:
+        raise ManifestParseError(
+            f"batch_size must be >= 1, got {batch_size_raw}"
+        )
+
     return WorkerAdapterManifest(
         adapter_name=raw["adapter_name"],
         note_type=raw["note_type"],
@@ -89,4 +100,5 @@ def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
         qa_triggers=_freeze(raw.get("qa_triggers", [])),
         context_injectors=_freeze(raw.get("context_injectors", [])),
         transform_hook=raw.get("transform_hook"),
+        batch_size=batch_size_raw,
     )
