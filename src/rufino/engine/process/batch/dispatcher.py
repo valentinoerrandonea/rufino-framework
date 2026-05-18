@@ -5,21 +5,15 @@ semaphore. The fake_claude test fixture mimics the real `claude -p` calling
 convention to exercise this code without spending tokens.
 """
 import asyncio
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from rufino.engine.process.batch.errors import (
-    DispatchError,
-    WorkerSessionExpiredError,
-)
+from rufino.engine.process.batch.errors import WorkerSessionExpiredError
 from rufino.engine.process.batch.planner import Plan, WorkerAssignment
-from rufino.engine.process.batch.runner_helper import (
-    ClaudeResult,
-    TIMEOUT_EXIT_CODE,
-    run_claude,
-)
+from rufino.engine.process.batch.runner_helper import ClaudeResult, run_claude
 
 
 SESSION_EXPIRED_EXIT_CODE = 41
@@ -38,17 +32,26 @@ class DispatchOutcome:
     workers: tuple[WorkerOutcome, ...] = field(default_factory=tuple)
 
 
-def build_argv(*, system_prompt: str, staging_dir: Path, vault_slug: str) -> list[str]:
+def build_argv(*, system_prompt: str, vault_slug: str) -> list[str]:
     return [
         "claude",
         "-p",
         "--system-prompt", system_prompt,
         "--allowedTools",
         f"Read,Write,Glob,mcp__ask-rufino-{vault_slug}__*",
-        "--cwd", str(staging_dir),
         "--",
         "Procesá las notas listadas en assignment.json siguiendo el system prompt.",
     ]
+
+
+def _write_assignment(staging_dir: Path, assignment: WorkerAssignment, run_id: str) -> None:
+    payload = {
+        "run_id": run_id,
+        "worker_id": assignment.worker_id,
+        "group": assignment.group,
+        "notes": [str(p) for p in assignment.notes],
+    }
+    (staging_dir / "assignment.json").write_text(json.dumps(payload, indent=2))
 
 
 async def _run_one(
@@ -61,18 +64,15 @@ async def _run_one(
 ) -> WorkerOutcome:
     staging_dir = run_dir / "workers" / assignment.worker_id
     staging_dir.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env["FAKE_CLAUDE_NOTES"] = os.pathsep.join(str(p) for p in assignment.notes)
-    env["FAKE_CLAUDE_RUN_ID"] = run_dir.name
-    env["FAKE_CLAUDE_WORKER_ID"] = assignment.worker_id
+    _write_assignment(staging_dir, assignment, run_id=run_dir.name)
 
-    argv = build_argv(
-        system_prompt=system_prompt, staging_dir=staging_dir,
-        vault_slug=vault_slug,
-    )
+    argv = build_argv(system_prompt=system_prompt, vault_slug=vault_slug)
 
     result: ClaudeResult = await run_claude(
-        argv=argv, cwd=staging_dir, env=env, timeout_seconds=timeout_seconds,
+        argv=argv,
+        cwd=staging_dir,
+        env=os.environ.copy(),
+        timeout_seconds=timeout_seconds,
     )
 
     if result.exit_code == SESSION_EXPIRED_EXIT_CODE:
@@ -101,6 +101,13 @@ async def dispatch(
     Raises WorkerSessionExpiredError immediately if any worker reports an
     expired session. Other failures (timeouts, non-zero exits, empty outputs)
     are reflected in WorkerOutcome and left for the validator.
+
+    Note on cancellation: when a worker raises WorkerSessionExpiredError,
+    asyncio.gather cancels the sibling tasks, but workers blocked inside
+    asyncio.to_thread → subprocess.run cannot honor cancellation until their
+    subprocess returns. In practice the call hangs until the slowest in-flight
+    worker hits its own timeout. Acceptable for v0.1.0 — caller sees the
+    session error and reruns once `claude login` is fixed.
     """
     if not plan.workers:
         return DispatchOutcome(workers=())

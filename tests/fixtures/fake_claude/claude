@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Fake `claude -p` for testing rufino process-batch.
 
-Driven by env vars:
+Mode (env var):
   FAKE_CLAUDE_MODE: augment | augment_bad | qa | session_expired | empty | hang
-  FAKE_CLAUDE_NOTES: newline- or os.pathsep-separated absolute note paths.
+
+Notes to process are read from `assignment.json` in cwd when present
+(the dispatcher writes it). Fallback for direct runner_helper tests:
+FAKE_CLAUDE_NOTES (newline- or os.pathsep-separated absolute paths).
+
+Run/worker identity in qa mode is taken from assignment.json too, with
+FAKE_CLAUDE_RUN_ID / FAKE_CLAUDE_WORKER_ID env vars as fallback.
 
 Writes outputs to cwd:
   augmented/<slug>.md, deltas/<slug>.json (modes augment / augment_bad)
-  pending/<slug>.json (mode qa)
-Exits 41 (session_expired)
-Hangs forever (mode hang) — caller must time it out.
+  pending/<slug>.json                       (mode qa)
+Exits 41                                   (mode session_expired)
+Hangs forever                              (mode hang — caller times out)
 """
 import json
 import os
@@ -19,6 +25,20 @@ from pathlib import Path
 
 
 SESSION_EXPIRED_EXIT = 41
+
+
+def _read_assignment(cwd: Path) -> dict:
+    path = cwd / "assignment.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _notes_from_assignment(assignment: dict) -> list[Path]:
+    return [Path(p) for p in assignment.get("notes", []) if str(p).strip()]
 
 
 def _notes_from_env() -> list[Path]:
@@ -83,17 +103,20 @@ def main() -> int:
         time.sleep(3600)
         return 0
 
-    notes = _notes_from_env()
     cwd = Path.cwd()
+    assignment = _read_assignment(cwd)
+    notes = _notes_from_assignment(assignment) or _notes_from_env()
 
     if mode == "qa":
+        run_id = assignment.get("run_id") or os.environ.get("FAKE_CLAUDE_RUN_ID", "test-run")
+        worker_id = assignment.get("worker_id") or os.environ.get("FAKE_CLAUDE_WORKER_ID", "w001")
         (cwd / "pending").mkdir(exist_ok=True)
         for note in notes:
             slug = note.stem
             pending = {
                 "origin": "process-batch",
-                "run_id": os.environ.get("FAKE_CLAUDE_RUN_ID", "test-run"),
-                "worker_id": os.environ.get("FAKE_CLAUDE_WORKER_ID", "w001"),
+                "run_id": run_id,
+                "worker_id": worker_id,
                 "pending_note": slug,
                 "input_path": str(note),
                 "trigger": "fake_trigger",

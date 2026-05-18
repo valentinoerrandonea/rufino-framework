@@ -10,7 +10,7 @@ from rufino.engine.process.batch.runner_helper import (
 )
 
 
-FAKE_DIR = Path("tests/fixtures/fake_claude").resolve()
+FAKE_DIR = (Path(__file__).parent / "fixtures" / "fake_claude").resolve()
 
 
 @pytest.fixture(autouse=True)

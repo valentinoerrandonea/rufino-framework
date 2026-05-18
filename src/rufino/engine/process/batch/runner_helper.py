@@ -24,7 +24,7 @@ class ClaudeResult:
 
 
 def _run_blocking(
-    argv: list[str], cwd: Path, env: dict, timeout_seconds: float,
+    argv: list[str], cwd: Path, env: dict[str, str], timeout_seconds: float,
 ) -> ClaudeResult:
     try:
         completed = subprocess.run(
@@ -52,7 +52,7 @@ async def run_claude(
     *,
     argv: list[str],
     cwd: Path,
-    env: dict,
+    env: dict[str, str],
     timeout_seconds: float,
 ) -> ClaudeResult:
     """Run a claude subprocess to completion. Returns ClaudeResult always —
