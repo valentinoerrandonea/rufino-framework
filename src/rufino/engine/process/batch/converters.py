@@ -6,12 +6,15 @@ Markdown and plain text pass through unchanged. .docx → markdown via mammoth.
 raise — they are passthrough at the stager level (the worker reads them via
 the Read tool directly).
 """
+import logging
 from pathlib import Path
 
 from rufino.engine.process.batch.errors import (
     ConversionError,
     UnsupportedFormatError,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def docx_to_md(path: Path) -> str:
@@ -20,6 +23,9 @@ def docx_to_md(path: Path) -> str:
     try:
         with open(path, "rb") as fh:
             result = mammoth.convert_to_markdown(fh)
+        for msg in result.messages:
+            text = getattr(msg, "message", None) or str(msg)
+            _log.warning("docx conversion warning for %s: %s", path, text)
         return result.value
     except Exception as e:
         raise ConversionError(f"docx conversion failed for {path}: {e}") from e
@@ -43,7 +49,7 @@ def pptx_to_md(path: Path) -> str:
                     if line:
                         texts.append(line)
         title = texts[0] if texts else f"(empty slide {idx})"
-        body = "\n".join(texts[1:]) if len(texts) > 1 else ""
+        body = "\n\n".join(texts[1:]) if len(texts) > 1 else ""
         section = f"## Slide {idx}: {title}\n"
         if body:
             section += f"\n{body}\n"
