@@ -251,11 +251,24 @@ def bootstrap_cmd(dry_run: bool) -> None:
             err=True,
         )
         raise click.exceptions.Exit(code=127)
+    # Interactive session with the wizard system prompt. NOT `-p/--print` —
+    # that is headless one-shot mode (Claude reads the prompt as a user
+    # message, replies once, exits). The wizard needs back-and-forth, so
+    # we use the default interactive mode and inject our prompt via
+    # `--system-prompt`.
+    #
+    # The trailing positional arg is the *initial user message* — without it
+    # Claude Code opens silently and waits for the user to type first.
+    # Passing a kickoff message makes the wizard greet and ask its first
+    # question, which is what the user expects from `rufino bootstrap`.
     proc = subprocess.run(
         [
-            "claude", "-p", system_prompt,
+            "claude",
+            "--system-prompt", system_prompt,
             "--allowedTools",
             "Bash(rufino materialize:*),Bash(rufino query:*),Read,Write",
+            "--",  # end-of-options marker so --allowedTools doesn't slurp the prompt
+            "Saludá y arrancá la entrevista del wizard.",
         ],
         check=False,
     )
