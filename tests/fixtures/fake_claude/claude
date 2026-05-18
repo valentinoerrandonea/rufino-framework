@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Fake `claude -p` for testing rufino process-batch.
+
+Mode (env var):
+  FAKE_CLAUDE_MODE: augment | augment_bad | qa | session_expired | empty | hang
+
+Notes to process are read from `assignment.json` in cwd when present
+(the dispatcher writes it). Fallback for direct runner_helper tests:
+FAKE_CLAUDE_NOTES (newline- or os.pathsep-separated absolute paths).
+
+Run/worker identity in qa mode is taken from assignment.json too, with
+FAKE_CLAUDE_RUN_ID / FAKE_CLAUDE_WORKER_ID env vars as fallback.
+
+Writes outputs to cwd:
+  augmented/<slug>.md, deltas/<slug>.json (modes augment / augment_bad)
+  pending/<slug>.json                       (mode qa)
+Exits 41                                   (mode session_expired)
+Hangs forever                              (mode hang — caller times out)
+"""
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+
+SESSION_EXPIRED_EXIT = 41
+
+
+def _read_assignment(cwd: Path) -> dict:
+    path = cwd / "assignment.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _notes_from_assignment(assignment: dict) -> list[Path]:
+    return [Path(p) for p in assignment.get("notes", []) if str(p).strip()]
+
+
+def _notes_from_env() -> list[Path]:
+    raw = os.environ.get("FAKE_CLAUDE_NOTES", "")
+    if not raw:
+        return []
+    parts = raw.replace("\n", os.pathsep).split(os.pathsep)
+    return [Path(p) for p in parts if p.strip()]
+
+
+def _augment(slug: str, body: str, *, valid: bool):
+    if valid:
+        fm = (
+            "---\n"
+            f"title: {slug}\n"
+            f"materia: fake\n"
+            "tags: [materia/fake]\n"
+            "triples:\n"
+            "  - {s: \"thing\", r: \"tema-de\", o: \"fake\"}\n"
+            "---\n"
+        )
+        delta = {
+            "note_slug": slug,
+            "tags_added": ["materia/fake"],
+            "triples_emitted": [{"s": "thing", "r": "tema-de", "o": "fake"}],
+            "concepts_referenced": ["thing"],
+            "concepts_promoted": [],
+            "wikilinks_added": [],
+            "qa_opened": [],
+            "warnings": [],
+        }
+    else:
+        fm = (
+            "---\n"
+            f"materia: fake\n"
+            "tags: []\n"
+            "triples:\n"
+            "  - {s: \"thing\", r: \"INVALID-relation\", o: \"fake\"}\n"
+            "---\n"
+        )
+        delta = {
+            "note_slug": slug,
+            "tags_added": [],
+            "triples_emitted": [{"s": "thing", "r": "INVALID-relation", "o": "fake"}],
+            "concepts_referenced": [],
+            "concepts_promoted": [],
+            "wikilinks_added": [],
+            "qa_opened": [],
+            "warnings": [],
+        }
+    return fm + body, delta
+
+
+def main() -> int:
+    mode = os.environ.get("FAKE_CLAUDE_MODE", "augment")
+    if mode == "session_expired":
+        sys.stderr.write("fake-claude: session expired\n")
+        return SESSION_EXPIRED_EXIT
+    if mode == "empty":
+        return 0
+    if mode == "hang":
+        time.sleep(3600)
+        return 0
+
+    cwd = Path.cwd()
+    assignment = _read_assignment(cwd)
+    notes = _notes_from_assignment(assignment) or _notes_from_env()
+
+    if mode == "qa":
+        run_id = assignment.get("run_id") or os.environ.get("FAKE_CLAUDE_RUN_ID", "test-run")
+        worker_id = assignment.get("worker_id") or os.environ.get("FAKE_CLAUDE_WORKER_ID", "w001")
+        (cwd / "pending").mkdir(exist_ok=True)
+        for note in notes:
+            slug = note.stem
+            pending = {
+                "origin": "process-batch",
+                "run_id": run_id,
+                "worker_id": worker_id,
+                "pending_note": slug,
+                "input_path": str(note),
+                "trigger": "fake_trigger",
+                "context": "fake context",
+                "question": f"What about {slug}?",
+            }
+            (cwd / "pending" / f"{slug}.json").write_text(json.dumps(pending, indent=2))
+        return 0
+
+    valid = (mode == "augment")
+    (cwd / "augmented").mkdir(exist_ok=True)
+    (cwd / "deltas").mkdir(exist_ok=True)
+    for note in notes:
+        slug = note.stem
+        body = f"\n# {slug}\nfake augmented body\n"
+        md, delta = _augment(slug, body, valid=valid)
+        (cwd / "augmented" / f"{slug}.md").write_text(md)
+        (cwd / "deltas" / f"{slug}.json").write_text(json.dumps(delta, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
