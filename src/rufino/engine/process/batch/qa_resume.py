@@ -2,6 +2,7 @@
 user's answer injected, then archive the question on success.
 """
 import json
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -20,6 +21,12 @@ from rufino.engine.process.batch.worker_prompt import (
     build_worker_system_prompt,
 )
 from rufino.engine.process.manifest import parse_worker_manifest
+
+
+log = logging.getLogger(__name__)
+
+
+_PASSTHROUGH_EXTS = (".md", ".pdf", ".txt")
 
 
 def _read_question(qfile: Path) -> dict:
@@ -78,10 +85,23 @@ async def resume_pending_qa(
     )
 
     inbox = run_dir / "inbox"
-    matches = list(inbox.rglob(f"{slug}.md")) + list(inbox.rglob(f"{slug}.pdf"))
-    if not matches:
-        return False
-    note_path = matches[0]
+    note_path: Path | None = None
+    declared_input = meta.get("input_path")
+    if declared_input:
+        candidate = run_dir / declared_input
+        if candidate.exists():
+            note_path = candidate
+    if note_path is None:
+        matches: list[Path] = []
+        for ext in _PASSTHROUGH_EXTS:
+            matches.extend(inbox.rglob(f"{slug}{ext}"))
+        if not matches:
+            log.warning(
+                "qa-resume cannot locate note for slug=%s (input_path=%s, run=%s); skipping",
+                slug, declared_input, run_id,
+            )
+            return False
+        note_path = matches[0]
 
     staging_dir = run_dir / "workers" / worker_id
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -114,6 +134,11 @@ async def resume_pending_qa(
         raise WorkerSessionExpiredError(
             "Tu sesión Claude está expirada. Corré `claude login`."
         )
+    if result.exit_code != 0:
+        log.warning(
+            "qa-resume worker exited %d for %s (run=%s): %s",
+            result.exit_code, slug, run_id, result.stderr[:500],
+        )
 
     pending = staging_dir / "pending" / f"{slug}.json"
     if pending.exists():
@@ -122,9 +147,17 @@ async def resume_pending_qa(
     aug = staging_dir / "augmented" / f"{slug}.md"
     delta = staging_dir / "deltas" / f"{slug}.json"
     if not aug.exists():
+        log.warning(
+            "qa-resume worker produced no augmented/%s.md (run=%s); leaving question in place",
+            slug, run_id,
+        )
         return False
     validation = validate_one(aug, delta, manifest)
     if not validation.passed:
+        log.warning(
+            "qa-resume validation failed for %s (run=%s): %s",
+            slug, run_id, list(validation.errors),
+        )
         return False
 
     archived = vault_root / "questions" / "answered"
