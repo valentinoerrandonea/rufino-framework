@@ -45,3 +45,15 @@ def test_two_vaults_with_same_basename_collide(tmp_path: Path):
     a = tmp_path / "a" / "study"
     b = tmp_path / "b" / "study"
     assert compute_vault_slug(a) == compute_vault_slug(b)
+
+
+def test_root_path_raises():
+    """`Path('/')` has empty basename — produces empty slug, must raise."""
+    with pytest.raises(ValueError, match="empty slug"):
+        compute_vault_slug(Path("/"))
+
+
+def test_dot_path_raises():
+    """`Path('.')` has empty basename — same failure mode as root."""
+    with pytest.raises(ValueError, match="empty slug"):
+        compute_vault_slug(Path("."))

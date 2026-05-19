@@ -1,3 +1,4 @@
+import asyncio
 import json
 from pathlib import Path
 
@@ -5,6 +6,8 @@ import click
 
 from rufino.version import VERSION
 from rufino.engine.memory_loop.installer import install_memory_loop, InstallationError
+from rufino.engine.process.batch.errors import BatchError, WorkerSessionExpiredError
+from rufino.engine.process.batch.runner import run_batch
 from rufino.engine.process.dispatcher import process_note as _process_note
 from rufino.engine.ingest.runner import run_ingest
 from rufino.engine.output.dispatcher import dispatch_output
@@ -340,12 +343,6 @@ def process_batch_cmd(
     workers: int | None, batch_size: int | None, dry_run: bool,
 ) -> None:
     """Process a corpus (ZIP or directory) into augmented vault notes."""
-    import asyncio
-    from rufino.engine.process.batch.errors import (
-        BatchError, WorkerSessionExpiredError,
-    )
-    from rufino.engine.process.batch.runner import run_batch
-
     try:
         result = asyncio.run(run_batch(
             source=source, adapter_dir=adapter_dir, vault_root=vault_root,
@@ -358,7 +355,7 @@ def process_batch_cmd(
         click.echo(f"Error: {e}", err=True)
         raise click.exceptions.Exit(code=1)
     except FileNotFoundError as e:
-        if "claude" in str(e):
+        if getattr(e, "filename", None) == "claude":
             click.echo("Error: `claude` no encontrado en PATH.", err=True)
             raise click.exceptions.Exit(code=127)
         raise
