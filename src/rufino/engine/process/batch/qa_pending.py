@@ -70,8 +70,23 @@ def collect_pending(run_dir: Path) -> list[PendingQA]:
             if not isinstance(data, dict):
                 log.warning("dropping %s: payload must be a JSON object", p)
                 continue
-            if not isinstance(data.get("pending_note"), str):
-                log.warning("dropping %s: pending_note must be a string", p)
+            # All string fields must actually be strings — a non-string slug
+            # would escape _validate_slug as a TypeError, and a non-string
+            # trigger/context/question would render garbage into the
+            # question file body.
+            _required_strs = (
+                "origin", "run_id", "worker_id", "pending_note",
+                "input_path", "trigger", "question",
+            )
+            bad = next(
+                (k for k in _required_strs if not isinstance(data.get(k), str)),
+                None,
+            )
+            if bad is not None:
+                log.warning("dropping %s: %s must be a string", p, bad)
+                continue
+            if "context" in data and not isinstance(data["context"], str):
+                log.warning("dropping %s: context must be a string", p)
                 continue
             try:
                 out.append(PendingQA(
