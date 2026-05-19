@@ -54,7 +54,7 @@ def build_consolidator_system_prompt(*, run_dir: Path, vault_slug: str) -> str:
     return _CONSOLIDATOR_PREAMBLE.format(run_dir=run_dir, slug=vault_slug)
 
 
-def validate_consolidation_plan(raw: dict) -> ConsolidationPlan:
+def validate_consolidation_plan(raw: dict[str, Any]) -> ConsolidationPlan:
     required_keys = {"moves", "concept_writes", "tag_index_updates", "log_entries"}
     missing = required_keys - set(raw.keys())
     if missing:
@@ -65,6 +65,16 @@ def validate_consolidation_plan(raw: dict) -> ConsolidationPlan:
     for m in raw["moves"]:
         if not isinstance(m, dict) or "from" not in m or "to" not in m:
             raise ConsolidationError(f"bad move entry: {m!r}")
+    for cw in raw["concept_writes"]:
+        if not isinstance(cw, dict) or "path" not in cw or "content" not in cw:
+            raise ConsolidationError(f"bad concept_write entry: {cw!r}")
+    for tu in raw["tag_index_updates"]:
+        if (
+            not isinstance(tu, dict)
+            or "tag" not in tu
+            or not isinstance(tu.get("notes"), list)
+        ):
+            raise ConsolidationError(f"bad tag_index_update entry: {tu!r}")
     return ConsolidationPlan(
         moves=list(raw["moves"]),
         concept_writes=list(raw["concept_writes"]),
@@ -88,7 +98,6 @@ async def run_consolidator(
         "claude", "-p",
         "--system-prompt", prompt,
         "--allowedTools", f"Read,Glob,Write,mcp__ask-rufino-{vault_slug}__*",
-        "--cwd", str(run_dir),
         "--",
         f"Escribí el plan a {plan_path}",
     ]

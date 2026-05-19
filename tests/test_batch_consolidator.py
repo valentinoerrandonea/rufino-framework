@@ -42,3 +42,36 @@ def test_build_prompt_mentions_run_dir_and_slug():
     assert "/run" in prompt
     assert "myslug" in prompt
     assert "consolidation-plan.json" in prompt
+
+
+def test_validate_plan_rejects_concept_write_missing_content():
+    raw = {
+        "moves": [],
+        "concept_writes": [{"path": "conceptos/x.md"}],
+        "tag_index_updates": [],
+        "log_entries": [],
+    }
+    with pytest.raises(ConsolidationError, match="concept_write"):
+        validate_consolidation_plan(raw)
+
+
+def test_validate_plan_rejects_tag_update_missing_notes():
+    raw = {
+        "moves": [],
+        "concept_writes": [],
+        "tag_index_updates": [{"tag": "x"}],
+        "log_entries": [],
+    }
+    with pytest.raises(ConsolidationError, match="tag_index_update"):
+        validate_consolidation_plan(raw)
+
+
+def test_validate_plan_rejects_tag_update_notes_not_list():
+    raw = {
+        "moves": [],
+        "concept_writes": [],
+        "tag_index_updates": [{"tag": "x", "notes": "n"}],
+        "log_entries": [],
+    }
+    with pytest.raises(ConsolidationError, match="tag_index_update"):
+        validate_consolidation_plan(raw)

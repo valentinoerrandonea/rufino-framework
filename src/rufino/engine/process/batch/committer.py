@@ -1,5 +1,13 @@
-"""Apply a ConsolidationPlan to the vault via the transaction log."""
+"""Apply a ConsolidationPlan to the vault via the transaction log.
+
+All snapshots used for rollback live under ``run_dir/.backups/`` so they
+never leak into the user's vault tree. Rollback handlers are module-level
+and receive their full state encoded in ``LogEntry.target``; closures
+with default-arg state would be silently overwritten because the registry
+invokes handlers positionally.
+"""
 import shutil
+import uuid
 from pathlib import Path
 
 from rufino.engine.process.batch.consolidator import ConsolidationPlan
@@ -14,34 +22,71 @@ from rufino.runtime.transaction_log import (
 )
 
 
-def _safe_in_vault(vault_root: Path, rel: str) -> Path:
-    target = (vault_root / rel).resolve()
-    root = vault_root.resolve()
-    if not target.is_relative_to(root):
-        raise ValueError(f"path escapes vault: {rel!r}")
+_NUL = "\x00"
+
+
+def _safe_in_root(root: Path, rel: str, *, label: str) -> Path:
+    target = (root / rel).resolve()
+    root_resolved = root.resolve()
+    if not target.is_relative_to(root_resolved):
+        raise ValueError(f"path escapes {label}: {rel!r}")
     return target
 
 
+def _safe_in_vault(vault_root: Path, rel: str) -> Path:
+    return _safe_in_root(vault_root, rel, label="vault")
+
+
+def _safe_in_run_dir(run_dir: Path, rel: str) -> Path:
+    return _safe_in_root(run_dir, rel, label="run_dir")
+
+
 def _undo_move(target: str) -> None:
-    if "\x00" not in target:
+    if _NUL not in target:
         return
-    dest, src = target.split("\x00", 1)
+    dest, src = target.split(_NUL, 1)
     if Path(dest).exists():
         Path(src).parent.mkdir(parents=True, exist_ok=True)
         shutil.move(dest, src)
 
 
-def _undo_concept_overwrite(target: str) -> None:
-    if "\x00" not in target:
+def _undo_snapshot_restore(target: str) -> None:
+    """Restore ``live`` from ``snap``. Target format: ``"<live>\\x00<snap>"``."""
+    if _NUL not in target:
         return
-    dest, backup = target.split("\x00", 1)
-    if Path(backup).exists():
-        shutil.copy2(backup, dest)
-        Path(backup).unlink()
+    live, snap = target.split(_NUL, 1)
+    if Path(snap).exists():
+        shutil.copy2(snap, live)
+
+
+def _undo_log_append(target: str) -> None:
+    """Restore log file from snapshot, or delete it if it did not pre-exist.
+
+    Target format: ``"<live>\\x00<snap>\\x00<existed>"`` where ``existed``
+    is ``"1"`` or ``"0"``.
+    """
+    parts = target.split(_NUL)
+    if len(parts) != 3:
+        return
+    live, snap, existed = parts
+    live_p = Path(live)
+    snap_p = Path(snap)
+    if existed == "1" and snap_p.exists():
+        shutil.copy2(snap_p, live_p)
+    elif existed == "0" and live_p.exists():
+        live_p.unlink()
 
 
 register_rollback("batch_undo_move", _undo_move)
-register_rollback("batch_undo_concept_overwrite", _undo_concept_overwrite)
+register_rollback("batch_undo_snapshot_restore", _undo_snapshot_restore)
+register_rollback("batch_undo_log_append", _undo_log_append)
+
+
+def _new_backup_path(run_dir: Path, hint: str) -> Path:
+    """Allocate a unique snapshot path inside ``run_dir/.backups/``."""
+    backups = run_dir / ".backups"
+    backups.mkdir(parents=True, exist_ok=True)
+    return backups / f"{hint}.{uuid.uuid4().hex[:8]}.snap"
 
 
 def commit(
@@ -55,19 +100,19 @@ def commit(
     exception propagates."""
     try:
         for m in plan.moves:
-            src = (run_dir / m["from"]).resolve()
+            src = _safe_in_run_dir(run_dir, m["from"])
             dest = _safe_in_vault(vault_root, m["to"])
             if not src.exists():
                 raise FileNotFoundError(f"missing source: {src}")
             dest.parent.mkdir(parents=True, exist_ok=True)
 
-            def _do_move(src=src, dest=dest):
+            def _do_move(src=src, dest=dest) -> None:
                 shutil.move(str(src), str(dest))
 
             apply_and_log(
                 tx_log,
                 op="batch_move",
-                target=f"{dest}\x00{src}",
+                target=f"{dest}{_NUL}{src}",
                 apply_fn=_do_move,
                 rollback="batch_undo_move",
             )
@@ -75,21 +120,20 @@ def commit(
         for cw in plan.concept_writes:
             dest = _safe_in_vault(vault_root, cw["path"])
             dest.parent.mkdir(parents=True, exist_ok=True)
-            existed = dest.exists()
-            previous = dest.read_text(encoding="utf-8") if existed else None
+            content = cw["content"]
 
-            def _do_write(dest=dest, content=cw["content"]):
+            def _do_write(dest=dest, content=content) -> None:
                 dest.write_text(content, encoding="utf-8")
 
-            if existed:
-                backup = dest.with_suffix(dest.suffix + ".pre-batch")
-                backup.write_text(previous, encoding="utf-8")
+            if dest.exists():
+                snap = _new_backup_path(run_dir, dest.stem)
+                shutil.copy2(dest, snap)
                 apply_and_log(
                     tx_log,
                     op="batch_concept_write_overwrite",
-                    target=f"{dest}\x00{backup}",
+                    target=f"{dest}{_NUL}{snap}",
                     apply_fn=_do_write,
-                    rollback="batch_undo_concept_overwrite",
+                    rollback="batch_undo_snapshot_restore",
                 )
             else:
                 apply_and_log(
@@ -102,37 +146,41 @@ def commit(
 
         if plan.tag_index_updates:
             tag_index = vault_root / "_meta" / "_tags.md"
-            snap = tag_index.with_suffix(tag_index.suffix + ".pre-batch")
+            tag_index.parent.mkdir(parents=True, exist_ok=True)
+            tag_snap = _new_backup_path(run_dir, "tags")
             if tag_index.exists():
-                shutil.copy2(tag_index, snap)
+                shutil.copy2(tag_index, tag_snap)
             else:
-                snap.write_text("", encoding="utf-8")
-
-            def _restore_tags(target=str(tag_index), backup=str(snap)):
-                shutil.copy2(backup, target)
-
-            register_rollback("batch_undo_tag_index", _restore_tags)
+                tag_snap.write_text("", encoding="utf-8")
+            tag_target = f"{tag_index}{_NUL}{tag_snap}"
             for tu in plan.tag_index_updates:
                 for note in tu["notes"]:
                     apply_and_log(
                         tx_log,
                         op="batch_tag_index_update",
-                        target=f"{tag_index}\x00{snap}",
+                        target=tag_target,
                         apply_fn=lambda tag=tu["tag"], note=note: update_tag_index(
                             tag_index, tag=tag, note_slug=note,
                         ),
-                        rollback="batch_undo_tag_index",
+                        rollback="batch_undo_snapshot_restore",
                     )
 
-        log_path = vault_root / "_meta" / "_processing-log.md"
-        for entry in plan.log_entries:
-            apply_and_log(
-                tx_log,
-                op="batch_log_append",
-                target=str(log_path),
-                apply_fn=lambda entry=entry: append_to_log(log_path, message=entry),
-                rollback="rmdir_if_empty",
-            )
+        if plan.log_entries:
+            log_path = vault_root / "_meta" / "_processing-log.md"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            log_snap = _new_backup_path(run_dir, "log")
+            existed = "1" if log_path.exists() else "0"
+            if log_path.exists():
+                shutil.copy2(log_path, log_snap)
+            log_target = f"{log_path}{_NUL}{log_snap}{_NUL}{existed}"
+            for entry in plan.log_entries:
+                apply_and_log(
+                    tx_log,
+                    op="batch_log_append",
+                    target=log_target,
+                    apply_fn=lambda entry=entry: append_to_log(log_path, message=entry),
+                    rollback="batch_undo_log_append",
+                )
     except Exception:
         tx_log.rollback()
         raise
