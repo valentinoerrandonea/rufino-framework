@@ -333,11 +333,12 @@ def detect_embeddings_cmd() -> None:
 @cli.command(name="enable-embeddings")
 @click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path),
               help="Vault root path")
-@click.option("--state-dir", "state_dir", required=True, type=click.Path(path_type=Path),
-              help="Rufino state directory (typically ~/.rufino/state)")
+@click.option("--state-dir", "state_dir", default=None,
+              type=click.Path(path_type=Path),
+              help="Rufino state directory (default: ~/.rufino/state)")
 @click.option("--model", default="nomic-embed-text",
               help="Ollama embedding model (default: nomic-embed-text)")
-def enable_embeddings_cmd(vault_root: Path, state_dir: Path, model: str) -> None:
+def enable_embeddings_cmd(vault_root: Path, state_dir: Path | None, model: str) -> None:
     """Enable semantic embeddings for a vault. Requires ollama + nomic-embed-text."""
     from rufino.runtime.embedder.detect import detect_ollama
     from rufino.runtime.embedder.ollama import OllamaEmbedder
@@ -347,6 +348,7 @@ def enable_embeddings_cmd(vault_root: Path, state_dir: Path, model: str) -> None
         click.echo(f"Error: {r.error}", err=True)
         raise click.exceptions.Exit(code=1)
 
+    state_dir = state_dir or DEFAULT_STATE_DIR
     vault_root = vault_root.expanduser().resolve()
     state_dir = state_dir.expanduser().resolve()
     slug = compute_vault_slug(vault_root)
@@ -366,9 +368,12 @@ def enable_embeddings_cmd(vault_root: Path, state_dir: Path, model: str) -> None
 
 @cli.command(name="disable-embeddings")
 @click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
-@click.option("--state-dir", "state_dir", required=True, type=click.Path(path_type=Path))
-def disable_embeddings_cmd(vault_root: Path, state_dir: Path) -> None:
+@click.option("--state-dir", "state_dir", default=None,
+              type=click.Path(path_type=Path),
+              help="Rufino state directory (default: ~/.rufino/state)")
+def disable_embeddings_cmd(vault_root: Path, state_dir: Path | None) -> None:
     """Disable semantic embeddings for a vault. Idempotent; preserves indices."""
+    state_dir = state_dir or DEFAULT_STATE_DIR
     vault_root = vault_root.expanduser().resolve()
     state_dir = state_dir.expanduser().resolve()
     slug = compute_vault_slug(vault_root)

@@ -355,7 +355,7 @@ Chequea si Ollama está corriendo localmente y si el modelo `nomic-embed-text` e
 ## `rufino enable-embeddings`
 
 ```bash
-rufino enable-embeddings --vault <PATH> --state-dir <PATH> [--model <name>]
+rufino enable-embeddings --vault <PATH> [--state-dir <PATH>] [--model <name>]
 ```
 
 Activa el embedder semántico para un vault específico. Detecta Ollama, escribe la config en `<state-dir>/vaults/<slug>.yaml` con `embeddings.enabled: true`, y reconstruye los índices (semantic + graph). Si la detección falla (Ollama down / modelo no pulled), exits 1 y **no** escribe state.
@@ -363,7 +363,7 @@ Activa el embedder semántico para un vault específico. Detecta Ollama, escribe
 | Flag | Required | Default | Qué hace |
 |---|---|---|---|
 | `--vault PATH` | sí | — | Vault a habilitar |
-| `--state-dir PATH` | sí | — | Donde vive `vaults/<slug>.yaml` (típicamente `~/.rufino/state`) |
+| `--state-dir PATH` | no | `~/.rufino/state` | Donde vive `vaults/<slug>.yaml` |
 | `--model NAME` | no | `nomic-embed-text` | Modelo Ollama a usar |
 
 ---
@@ -371,10 +371,10 @@ Activa el embedder semántico para un vault específico. Detecta Ollama, escribe
 ## `rufino disable-embeddings`
 
 ```bash
-rufino disable-embeddings --vault <PATH> --state-dir <PATH>
+rufino disable-embeddings --vault <PATH> [--state-dir <PATH>]
 ```
 
-Vuelve `embeddings.enabled` a `false`. Idempotente.
+Vuelve `embeddings.enabled` a `false`. Idempotente. `--state-dir` default `~/.rufino/state`.
 
 ### Hybrid rerank — cross-encoder pinneado
 

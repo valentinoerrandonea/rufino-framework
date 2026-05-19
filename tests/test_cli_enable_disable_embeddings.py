@@ -102,3 +102,41 @@ def test_disable_embeddings_idempotent(tmp_path: Path) -> None:
     r2 = CliRunner().invoke(cli, ["disable-embeddings", "--vault", str(vault), "--state-dir", str(state)])
     assert r1.exit_code == 0
     assert r2.exit_code == 0
+
+
+def test_enable_embeddings_works_without_state_dir_flag(tmp_path: Path, monkeypatch) -> None:
+    """Regression: Codex P1 #3 — el wizard usa `enable-embeddings --vault X` sin --state-dir.
+
+    Comportamiento esperado: el comando aplica ~/.rufino/state como default,
+    igual que query / mcp-server / output. Sin esto, el flow guiado del
+    wizard falla con un Click error."""
+    vault = tmp_path / "v"
+    vault.mkdir()
+    fake_state = tmp_path / ".rufino" / "state"
+    monkeypatch.setattr("rufino.cli.DEFAULT_STATE_DIR", fake_state)
+
+    fake_ql = MagicMock()
+    with patch("rufino.runtime.embedder.detect.detect_ollama", return_value=_ok_detect()), \
+         patch("rufino.cli.QueryLayer", return_value=fake_ql):
+        result = CliRunner().invoke(cli, ["enable-embeddings", "--vault", str(vault)])
+    assert result.exit_code == 0, result.output
+
+    from rufino.runtime.vault_slug import compute_vault_slug
+    slug = compute_vault_slug(vault)
+    yaml_path = fake_state / "vaults" / f"{slug}.yaml"
+    assert yaml_path.exists()
+
+
+def test_disable_embeddings_works_without_state_dir_flag(tmp_path: Path, monkeypatch) -> None:
+    vault = tmp_path / "v"
+    vault.mkdir()
+    fake_state = tmp_path / ".rufino" / "state"
+    monkeypatch.setattr("rufino.cli.DEFAULT_STATE_DIR", fake_state)
+
+    result = CliRunner().invoke(cli, ["disable-embeddings", "--vault", str(vault)])
+    assert result.exit_code == 0, result.output
+
+    from rufino.runtime.vault_slug import compute_vault_slug
+    slug = compute_vault_slug(vault)
+    yaml_path = fake_state / "vaults" / f"{slug}.yaml"
+    assert yaml_path.exists()
