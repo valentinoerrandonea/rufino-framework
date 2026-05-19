@@ -32,13 +32,26 @@ log = logging.getLogger(__name__)
 
 
 def _write_single_note_assignment(
-    staging_dir: Path, *, run_id: str, worker_id: str, group: str, note_path: Path,
+    staging_dir: Path,
+    assignment: WorkerAssignment,
+    *,
+    run_id: str,
+    note_path: Path | None = None,
 ) -> None:
+    """Write ``assignment.json`` constraining the worker to a single note.
+
+    Both retry and qa-resume need to invoke a worker for exactly one note
+    out of an assignment that may originally have spanned many. The helper
+    centralises the JSON shape so both paths stay in sync.
+
+    If ``note_path`` is None, the assignment's first note is used.
+    """
+    target = note_path if note_path is not None else assignment.notes[0]
     payload = {
         "run_id": run_id,
-        "worker_id": worker_id,
-        "group": group,
-        "notes": [str(note_path)],
+        "worker_id": assignment.worker_id,
+        "group": assignment.group,
+        "notes": [str(target)],
     }
     staging_dir.mkdir(parents=True, exist_ok=True)
     (staging_dir / "assignment.json").write_text(json.dumps(payload, indent=2))
@@ -62,9 +75,7 @@ async def _retry_one(
         shutil.copy2(canonical, backup)
     try:
         _write_single_note_assignment(
-            staging_dir,
-            run_id=run_id, worker_id=assignment.worker_id, group=assignment.group,
-            note_path=note_path,
+            staging_dir, assignment, run_id=run_id, note_path=note_path,
         )
         argv = build_argv(
             system_prompt=base_prompt + appendix, vault_slug=vault_slug,
