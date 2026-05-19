@@ -82,3 +82,34 @@ def test_materialize_process_invalid_destination_path_raises(tmp_path: Path) -> 
             vault_slug="facultad",
             tx_log=log,
         )
+
+
+def test_materialize_process_writes_transform_when_body_provided(tmp_path: Path) -> None:
+    """F8 — Process adapter materializa transform.py + manifest field si la spec lo provee."""
+    body = (
+        "def transform(note_dict):\n"
+        "    note_dict['frontmatter']['extra'] = 'tagged'\n"
+        "    return note_dict\n"
+    )
+    spec = _spec(transform_hook_body=body)
+    log = TransactionLog(tmp_path / "tx.json")
+    out = materialize_process(
+        spec=spec, base_dir=tmp_path / "rufino",
+        vault_slug="facultad", tx_log=log,
+    )
+    transform_path = out / "transform.py"
+    assert transform_path.exists()
+    assert "note_dict['frontmatter']['extra']" in transform_path.read_text()
+    manifest = yaml.safe_load((out / "manifest.yaml").read_text())
+    assert manifest["transform_hook"] == "transform.py"
+
+
+def test_materialize_process_omits_transform_when_no_body(tmp_path: Path) -> None:
+    log = TransactionLog(tmp_path / "tx.json")
+    out = materialize_process(
+        spec=_spec(), base_dir=tmp_path / "rufino",
+        vault_slug="facultad", tx_log=log,
+    )
+    assert not (out / "transform.py").exists()
+    manifest = yaml.safe_load((out / "manifest.yaml").read_text())
+    assert "transform_hook" not in manifest or manifest.get("transform_hook") is None

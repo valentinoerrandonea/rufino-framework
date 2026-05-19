@@ -60,6 +60,12 @@ queda operativo desde el bootstrap. Si no, omitilo: el materializer escribe
 un scaffold que lanza ``NotImplementedError`` y el adapter queda en estado
 "ready for hand-edit".
 
+Tanto los sources como las entries de ``processing[]`` aceptan
+``transform_hook_body`` opcional. Si lo proveés, el materializer escribe
+``transform.py`` en el adapter dir y agrega ``transform_hook: transform.py``
+al manifest. El runtime invoca ``transform()`` entre fetch/write (Ingest) o
+VALIDATE/CONSOLIDATE (Process); fallos degradan al record original.
+
 ## 4. Patterns iniciales
 
 {% for p in patterns %}

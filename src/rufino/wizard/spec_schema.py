@@ -49,6 +49,9 @@ class IngestSpec:
     # materializer writes a NotImplementedError scaffold so the adapter is
     # importable but fail-fast on first run.
     fetcher_body: str | None = None
+    # Optional body for `transform.py` (any output_mode). When provided the
+    # materializer writes the file and sets manifest.transform_hook.
+    transform_hook_body: str | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,9 @@ class ProcessSpec:
     context_injectors: tuple[Mapping[str, Any], ...]
     batch_size: int
     prompt_instructions: str
+    # Optional body for `transform.py`. Same semantics as IngestSpec — when
+    # provided, materializer writes the file + sets manifest.transform_hook.
+    transform_hook_body: str | None = None
 
 
 @dataclass(frozen=True)
@@ -219,6 +225,14 @@ def _validate_ingest(entry: Any, *, idx: int) -> IngestSpec:
         )
     kwargs["fetcher_body"] = fetcher_body
 
+    transform_hook_body = entry.get("transform_hook_body")
+    if transform_hook_body is not None and not isinstance(transform_hook_body, str):
+        raise SpecError(
+            f"{where}: transform_hook_body must be a string if provided, "
+            f"got {type(transform_hook_body).__name__}"
+        )
+    kwargs["transform_hook_body"] = transform_hook_body
+
     return IngestSpec(**kwargs)
 
 
@@ -270,6 +284,13 @@ def _validate_process(entry: Any, *, idx: int) -> ProcessSpec:
             f"{where}: prompt_instructions must be a non-empty string"
         )
 
+    transform_hook_body = entry.get("transform_hook_body")
+    if transform_hook_body is not None and not isinstance(transform_hook_body, str):
+        raise SpecError(
+            f"{where}: transform_hook_body must be a string if provided, "
+            f"got {type(transform_hook_body).__name__}"
+        )
+
     return ProcessSpec(
         adapter_name=adapter_name,
         note_type=note_type,
@@ -283,6 +304,7 @@ def _validate_process(entry: Any, *, idx: int) -> ProcessSpec:
         context_injectors=tuple(_freeze_deep(c) for c in context_injectors),
         batch_size=batch_size,
         prompt_instructions=prompt_instructions,
+        transform_hook_body=transform_hook_body,
     )
 
 

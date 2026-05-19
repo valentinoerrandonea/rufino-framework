@@ -146,3 +146,47 @@ def test_validate_spec_rejects_non_string_fetcher_body() -> None:
     bad["sources"][0]["fetcher_body"] = 42
     with pytest.raises(SpecError, match="fetcher_body"):
         validate_spec(bad)
+
+
+def test_materialize_ingest_writes_transform_when_body_provided(tmp_path: Path) -> None:
+    """F8 — si la spec incluye transform_hook_body, se escribe transform.py + manifest field."""
+    spec_dict = _emit_facts_spec_dict()
+    spec_dict["sources"][0]["transform_hook_body"] = (
+        "import json, sys\n"
+        "rec = json.loads(sys.stdin.read())\n"
+        "rec['extra'] = 'tagged'\n"
+        "print(json.dumps(rec))\n"
+    )
+    spec = validate_spec(spec_dict)
+    tx = TransactionLog(tmp_path / "tx.json")
+    adapter_dir = materialize_ingest(
+        spec=spec.sources[0], base_dir=tmp_path / "h",
+        vault_slug="demo", tx_log=tx,
+    )
+    transform_path = adapter_dir / "transform.py"
+    assert transform_path.exists()
+    body = transform_path.read_text(encoding="utf-8")
+    assert "rec['extra'] = 'tagged'" in body
+
+    manifest = yaml.safe_load((adapter_dir / "manifest.yaml").read_text())
+    assert manifest["transform_hook"] == "transform.py"
+
+
+def test_materialize_ingest_omits_transform_when_no_body(tmp_path: Path) -> None:
+    spec = validate_spec(_emit_facts_spec_dict())
+    tx = TransactionLog(tmp_path / "tx.json")
+    adapter_dir = materialize_ingest(
+        spec=spec.sources[0], base_dir=tmp_path / "h",
+        vault_slug="demo", tx_log=tx,
+    )
+    assert not (adapter_dir / "transform.py").exists()
+    manifest = yaml.safe_load((adapter_dir / "manifest.yaml").read_text())
+    assert "transform_hook" not in manifest or manifest.get("transform_hook") is None
+
+
+def test_validate_spec_rejects_non_string_transform_hook_body() -> None:
+    from rufino.wizard.spec_schema import SpecError
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["transform_hook_body"] = 42
+    with pytest.raises(SpecError, match="transform_hook_body"):
+        validate_spec(bad)

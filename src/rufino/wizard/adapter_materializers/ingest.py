@@ -80,6 +80,17 @@ def materialize_ingest(
         apply_fn=lambda: fetcher_path.write_text(fetcher_body, encoding="utf-8"),
         rollback="delete",
     )
+
+    if spec.transform_hook_body is not None:
+        transform_path = adapter_dir / "transform.py"
+        body = spec.transform_hook_body
+        apply_and_log(
+            tx_log,
+            op="write",
+            target=str(transform_path),
+            apply_fn=lambda: transform_path.write_text(body, encoding="utf-8"),
+            rollback="delete",
+        )
     return adapter_dir
 
 
@@ -114,6 +125,8 @@ def _spec_to_manifest_dict(spec: IngestSpec) -> dict:
         d["dedup_by"] = spec.dedup_by
     if spec.process_inline_with is not None:
         d["process_inline_with"] = spec.process_inline_with
+    if spec.transform_hook_body is not None:
+        d["transform_hook"] = "transform.py"
     return d
 
 
