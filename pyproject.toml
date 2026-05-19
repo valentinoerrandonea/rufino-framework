@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rufino-framework"
-version = "0.0.3"
+version = "0.1.0"
 description = "Meta-arquitectura A2P para dominios de conocimiento personal"
 requires-python = ">=3.11"
 authors = [{ name = "Valentino Errandonea" }]
