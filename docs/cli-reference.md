@@ -26,7 +26,7 @@ Implementado en `src/rufino/cli.py` (`version` command); valor leído de `src/ru
 rufino bootstrap [--dry-run]
 ```
 
-Arranca el wizard conversacional. Por default lanza `claude -p <system-prompt>` con toolset restringido (`Read, Write, Bash(rufino materialize:*), Bash(rufino query:*)`).
+Arranca el wizard conversacional. Por default lanza una sesión interactiva con `claude --system-prompt <system-prompt> --allowedTools "..." -- "<kickoff>"` (NO `-p`/headless — el wizard requiere back-and-forth). Toolset restringido a `Read, Write, Bash(rufino materialize:*), Bash(rufino query:*)`.
 
 Flags:
 

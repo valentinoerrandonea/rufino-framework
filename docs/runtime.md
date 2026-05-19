@@ -138,39 +138,46 @@ Cuando el adapter se instala, el validador del manifest corre un **smoke test de
 
 ## Scheduler
 
-**Archivo:** `src/rufino/runtime/scheduler.py`
+**Archivos:** `src/rufino/runtime/scheduler/__init__.py`, `launchd.py`, `cron.py`
 
 Abstracción cross-platform del scheduling de tasks recurrentes:
 
-- **macOS:** materializa el cron del manifest en un `LaunchDaemon` plist y lo registra con `launchctl`
-- **Linux:** materializa en un user cron job o un `systemd` timer (preferencia configurable)
+- **macOS:** `LaunchdBackend` materializa el cron del manifest en un LaunchAgent plist y lo registra con `launchctl bootstrap gui/<uid>`.
+- **Linux:** `CronBackend` agrega una entrada al user crontab con un marker `# rufino-job:<job_id>` para filtrar nuestras entradas sin pisar las del usuario.
 
 ### API
 
 ```python
-from rufino.runtime.scheduler import ScheduledJob, install_job, uninstall_job
+from rufino.runtime.scheduler.launchd import LaunchdBackend
+from rufino.runtime.scheduler.cron import CronBackend
 
-job = ScheduledJob(
-    name="com.rufino.process-apunte",
-    schedule="*/30 * * * *",            # cron expression
-    command=[rufino_bin, "ingest", str(adapter_dir), ...],
-    working_dir=adapter_dir,
-    stdout_log=log_dir / "out.log",
-    stderr_log=log_dir / "err.log",
+backend = LaunchdBackend()    # o CronBackend() en Linux
+backend.install(
+    job_id="rufino-ingest-<vault-slug>-<adapter-name>",
+    schedule="*/30 * * * *",  # 5-field cron (m h dom mon dow)
+    cmd="/usr/local/bin/rufino ingest /abs/path/to/adapter --vault /abs/path/to/vault",
+    log_path="~/.rufino/logs/<job_id>.log",
 )
-
-install_job(job, tx_log=tx_log)         # registra + rollback handler
-# ... or ...
-uninstall_job(job)                      # cleanup
+backend.uninstall(job_id="rufino-ingest-...")
+backend.list_jobs()  # → ["rufino-ingest-..."]
 ```
+
+El CLI `rufino install-ingest` envuelve esto en un `TransactionLog` para
+que un fallo del backend deshaga la creación de `logs/` y el plist install
+en orden inverso (`apply_and_log(..., rollback="plist_uninstall")`).
 
 ### Cron expression validation
 
-El framework valida la expression contra ranges válidos (`0-59 0-23 1-31 1-12 0-7`). Expression inválida bloquea install.
+`runtime.scheduler.validate_cron` chequea que la expression tenga 5 campos
+y rangos válidos (`0-59 0-23 1-31 1-12 0-7` con `*` y step `*/N`).
+Expression inválida bloquea install.
 
 ### Tests
 
-Los tests de scheduler usan mocks de `launchctl` / `crontab` para no tocar el sistema real. Mirá `tests/test_scheduler.py`.
+`tests/test_scheduler_launchd.py` y `tests/test_scheduler_cron.py` usan
+runners fakes (sin tocar `launchctl` / `crontab` reales) y cubren
+re-install fallido (restore del plist previo), prefix collision (`foo`
+no debe borrar `foobar`), y marker dentro del cmd body.
 
 ---
 

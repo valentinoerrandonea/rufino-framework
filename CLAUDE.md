@@ -27,10 +27,10 @@ pytest --cov=src --cov-report=term-missing
 CLI (after install, or via `python -m rufino`):
 ```bash
 rufino version
-rufino bootstrap [--dry-run]                                  # --dry-run prints the system prompt; live launches `claude -p`
+rufino bootstrap [--dry-run]                                  # --dry-run prints the system prompt; live launches interactive `claude --system-prompt ... --allowedTools ... -- "<kickoff>"`
 rufino materialize --spec FILE --vault X --claude-home Y --state-dir Z
 rufino ingest <adapter_dir> --vault X --state-dir Y
-rufino process <note> --vault X --mode {light|full|lint}      # full is stubbed (exits 2)
+rufino process <note> --vault X --mode {light|full|lint}      # mode=full staged as tempdir-of-one and delegated to run_batch(workers=1, batch_size=1)
 rufino output <adapter_dir> --vault X
 rufino qa-poll --vault X --state-dir Y
 rufino query "..." --vault X --mode {lexical|semantic|hybrid}
@@ -59,7 +59,7 @@ The shape heterogeneity is intentional — see spec §4.3. Don't try to force un
 
 - `src/rufino/cli.py` — Click entry; one command per primitive plus `bootstrap` / `materialize` / `install-memory-loop` / `mcp-server`. The CLI is intentionally thin — orchestration lives in the engines.
 - `src/rufino/engine/<primitive>/` — primitive implementations. Each has a `manifest.py` (parser/validator) + a `dispatcher.py` or `runner.py` (the executor) + helpers.
-- `src/rufino/wizard/` — conversational bootstrap. `system_prompt_assembler.py` builds the prompt handed to `claude -p`; `spec_schema.py` validates the wizard's JSON output; `materializer.py` does the big-bang vault creation. `patterns/*.md` are vertical archetypes the wizard chooses from.
+- `src/rufino/wizard/` — conversational bootstrap. `system_prompt_assembler.py` builds the prompt handed to interactive `claude` (with `--system-prompt` + restricted `--allowedTools`); `spec_schema.py` validates the wizard's JSON output; `materializer.py` does the big-bang vault creation. `patterns/*.md` are vertical archetypes the wizard chooses from.
 - `src/rufino/mcp_server/` — `ask-rufino` MCP server (stdio) wrapping the Query layer.
 - `src/rufino/runtime/` — cross-cutting infra: `transaction_log.py` (the core of big-bang rollback), `secrets.py` (keyring), `scheduler.py` (launchd plists), `sandbox.py`, `prereq_checker.py`, `validator_base.py`.
 

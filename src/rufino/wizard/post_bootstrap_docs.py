@@ -40,7 +40,7 @@ Tres caminos:
 
 - **Lenguaje natural**: preguntale a Claude algo como
   *"qué tengo sobre X"* y te contesta.
-- **Búsqueda directa**: `rufino query "tu pregunta" --vault {spec.vertical_name}`
+- **Búsqueda directa**: `rufino query "tu pregunta" --vault <ruta-al-vault>`
 - **Navegando conexiones**: abrí cualquier nota y seguí los wikilinks.
 
 ## Desde otras conversaciones con Claude Code
