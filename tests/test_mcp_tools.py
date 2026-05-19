@@ -82,6 +82,31 @@ def test_list_triples_for_node(tmp_vault: Path):
     assert "c.md" in results
 
 
+def test_list_triples_for_node_forward(tmp_vault: Path):
+    """reverse=False returns objects the subject note points to."""
+    (tmp_vault / "c.md").write_text(
+        "---\ntriples:\n"
+        "  - { r: tema-de, o: ml-i }\n"
+        "  - { r: tema-de, o: regresion }\n"
+        "---\nbody\n"
+    )
+    ql = _make_ql(tmp_vault)
+    results = list_triples_for_node(
+        ql, node="c.md", relation="tema-de", reverse=False,
+    )
+    assert sorted(results) == ["ml-i", "regresion"]
+
+
+def test_list_triples_schema_reverse_default():
+    """The MCP inputSchema for list_triples_for_node must document reverse default=False."""
+    import inspect
+    from rufino.mcp_server.server import build_server
+    src = inspect.getsource(build_server)
+    assert '"default": False' in src, (
+        "list_triples_for_node schema must document 'reverse' default=False"
+    )
+
+
 def test_vault_stats_excludes_meta_and_dot_dirs(tmp_vault: Path):
     """Notes inside _meta/, .obsidian/, .git/ must not be counted."""
     (tmp_vault / "real.md").write_text("user note")

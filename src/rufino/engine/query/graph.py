@@ -56,16 +56,28 @@ class GraphBackend:
         depth: int,
         reverse: bool = False,
     ) -> list[NoteRef]:
-        """Find notes connected to `node` via `relation`.
+        """Find triple endpoints connected to `node` via `relation`.
 
         depth=1 only (multi-hop deferred to v1.1).
-        reverse=True: find notes whose triple POINTS TO `node` (inbound).
-        reverse=False: deferred — subject_path is a note path, not a node id.
+        reverse=True: `node` is an object; returns subject note paths pointing
+        to it via `relation` (inbound).
+        reverse=False (forward): `node` is a subject note path; returns the
+        objects it relates to via `relation`. The object string is carried in
+        NoteRef.relative_path for API uniformity; callers that need typing
+        beyond a string should treat the field as opaque.
         """
+        if depth != 1:
+            raise NotImplementedError(
+                "multi-hop traversal (depth > 1) deferred to v1.1"
+            )
         if reverse:
             cur = self._conn.execute(
                 "SELECT subject_path FROM triples WHERE relation = ? AND object = ?",
                 (relation, node),
             )
-            return [NoteRef(relative_path=row[0]) for row in cur.fetchall()]
-        raise NotImplementedError("forward traversal deferred to v1.1")
+        else:
+            cur = self._conn.execute(
+                "SELECT object FROM triples WHERE subject_path = ? AND relation = ?",
+                (node, relation),
+            )
+        return [NoteRef(relative_path=row[0]) for row in cur.fetchall()]

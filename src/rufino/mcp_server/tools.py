@@ -15,7 +15,7 @@ def find_note(ql: QueryLayer, *, query: str) -> str | None:
 
 
 def list_triples_for_node(
-    ql: QueryLayer, *, node: str, relation: str, reverse: bool = True,
+    ql: QueryLayer, *, node: str, relation: str, reverse: bool = False,
 ) -> list[str]:
     results = ql.traverse(node=node, relation=relation, depth=1, reverse=reverse)
     return [r.relative_path for r in results]

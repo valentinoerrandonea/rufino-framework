@@ -139,10 +139,9 @@ _meta/
 
 Todos los `read_text()` usan `encoding="utf-8"` explícito. UTF-8-tolerante en lectura (errors=replace) — un archivo con bytes weirdos no rompe el rebuild.
 
-## Limitaciones v0.0.2
+## Limitaciones v0.2.0
 
-- **Forward traverse `raises NotImplementedError`.** El primitive expone traverse reverse pero la versión forward está stubbed (escape hatch explícito en vez de devolver vacío silencioso).
-- **Semantic/hybrid sin embedder real.** Placeholder.
+- **Multi-hop traverse (`depth > 1`) raises NotImplementedError.** Forward y reverse están soportados ambos a `depth=1`; multi-hop queda diferido a v1.1.
 - **Sin file watcher.** Los indices no se rebuildean automáticamente al modificar notas — necesitás correr `rebuild_indices()` o relanzar el MCP server con `--rebuild`.
 - **Sin paginación.** `search()` devuelve hasta `k` resultados; queries con muchísimos matches pueden ser lentas (no es problema en vaults <10k notas).
 

@@ -33,11 +33,18 @@ def build_server(ql: QueryLayer):
                  inputSchema={"type": "object",
                               "properties": {"query": {"type": "string"}},
                               "required": ["query"]}),
-            Tool(name="list_triples_for_node", description="Find notes related to a node",
+            Tool(name="list_triples_for_node",
+                 description=(
+                     "Traverse triples on a node. reverse=False (default): "
+                     "node is a subject note path, returns the objects it "
+                     "points to via relation. reverse=True: node is an object, "
+                     "returns subject note paths pointing to it."
+                 ),
                  inputSchema={"type": "object",
                               "properties": {"node": {"type": "string"},
                                              "relation": {"type": "string"},
-                                             "reverse": {"type": "boolean"}},
+                                             "reverse": {"type": "boolean",
+                                                         "default": False}},
                               "required": ["node", "relation"]}),
             Tool(name="read_note", description="Read a note by relative path",
                  inputSchema={"type": "object",
