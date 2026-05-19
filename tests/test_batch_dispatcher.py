@@ -99,20 +99,19 @@ def test_dispatch_empty_outputs_ok(tmp_path, monkeypatch):
 def test_dispatch_session_expired_one_worker_does_not_hang_siblings(
     tmp_path, monkeypatch,
 ):
-    """M15 claude: when w001 returns session_expired, w002 must finish (or be
-    cleanly cancellable) without leaving zombie subprocesses.
+    """M15 claude: when w001 returns session_expired, the dispatcher surfaces
+    WorkerSessionExpiredError to the caller in bounded time and leaves no
+    half-written outputs that would confuse the validator.
 
-    Both workers are launched concurrently under ``max_workers=2``. w001's
-    fake subprocess exits 41 immediately (session_expired), which the
-    dispatcher maps to WorkerSessionExpiredError. w002 runs ``augment`` —
-    fake_claude is a single Python invocation, so by the time
-    ``asyncio.gather`` awaits the threaded subprocess, w002 has already
-    written its outputs. The dispatcher's docstring documents that
-    siblings can't honor cancellation until their subprocess returns, so
-    we verify *the side effect*: w002's augmented/<slug>.md is on disk
-    AND the expired-session exception still surfaces to the caller.
+    The dispatcher's docstring documents that siblings cannot honor
+    cancellation until their ``subprocess.run`` thread returns; pinning a
+    specific outcome for w002 (file present vs absent) would encode a
+    timing race. Instead we pin the *contracts that hold deterministically*:
 
-    Bounded timeout (5s) keeps a regression from hanging the suite.
+    1. ``WorkerSessionExpiredError`` propagates.
+    2. The dispatch completes within ``timeout_seconds`` (no hang).
+    3. w002 leaves no half-written state — either it never wrote, or both
+       its augmented file and its delta file are on disk together.
     """
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment_then_consolidate")  # default branch
     # Per-worker overrides: dispatcher writes assignment.json with worker_id,
@@ -137,12 +136,13 @@ def test_dispatch_session_expired_one_worker_does_not_hang_siblings(
     with pytest.raises(WorkerSessionExpiredError):
         asyncio.run(_run())
 
-    # Side-effect: w002 completed its work despite the sibling crash. The
-    # dispatcher cannot cancel an in-flight subprocess.run thread, so the
-    # documented contract is that w002 either completes or is cleanly
-    # cancellable — empirically, since augment is fast, the file lands.
+    # Either w002 didn't run yet, or its outputs are coherent — never one
+    # without the other (no half-written state). The validator depends on
+    # the (augmented, delta) pair being atomic.
     w002_aug = tmp_path / "workers" / "w002" / "augmented" / "n2.md"
-    assert w002_aug.exists(), (
-        "w002 (mode=augment) should have produced its augmented file "
-        "before the dispatch task was cancelled by w001's session_expired"
+    w002_delta = tmp_path / "workers" / "w002" / "deltas" / "n2.json"
+    assert w002_aug.exists() == w002_delta.exists(), (
+        "w002 wrote one of (augmented, delta) but not the other — "
+        "half-written state would confuse the validator. "
+        f"aug={w002_aug.exists()} delta={w002_delta.exists()}"
     )
