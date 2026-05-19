@@ -30,7 +30,7 @@ from rufino.engine.process.batch.errors import (
 )
 from rufino.engine.process.batch.planner import WorkerAssignment
 from rufino.engine.process.batch.retry import _write_single_note_assignment
-from rufino.engine.process.batch.runner_helper import run_claude
+from rufino.engine.process.batch.runner_helper import MAX_OUTPUT_BYTES, run_claude
 from rufino.engine.process.batch.validator import validate_one
 from rufino.engine.process.batch.worker_prompt import (
     build_worker_system_prompt,
@@ -229,6 +229,11 @@ async def _resume_pending_qa_locked(
     result = await run_claude(
         argv=argv, cwd=staging_dir, env=env, timeout_seconds=300.0,
     )
+    if result.truncated:
+        log.warning(
+            "qa-resume worker output truncated for %s (cap=%d bytes)",
+            slug, MAX_OUTPUT_BYTES,
+        )
     if result.exit_code == SESSION_EXPIRED_EXIT_CODE:
         raise WorkerSessionExpiredError(
             "Tu sesión Claude está expirada. Corré `claude login`."

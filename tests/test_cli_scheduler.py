@@ -195,6 +195,44 @@ def test_install_ingest_resolves_paths_to_absolute(tmp_path: Path, monkeypatch) 
     assert str(vault.resolve()) in cmd
 
 
+def test_install_ingest_scheduler_uninstall_rollback_uses_backend(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """CR-1 — La rollback del install registrado debe ir por backend.uninstall,
+    NO por el handler _plist_uninstall (que espera path absoluto y haría no-op
+    cuando target=job_id).
+    """
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    adapter_dir = tmp_path / "adapter"
+    _write_adapter(adapter_dir, _base_manifest())
+
+    fake = FakeBackend()
+    monkeypatch.setattr("rufino.cli._scheduler_backend", lambda: fake)
+    # El scheduler_uninstall handler resuelve el backend via get_backend(),
+    # así que tenemos que patchearlo también ahí.
+    monkeypatch.setattr("rufino.runtime.scheduler.get_backend", lambda: fake)
+
+    rh = tmp_path / "rh"
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "install-ingest", str(adapter_dir),
+        "--vault", str(vault),
+        "--rufino-home", str(rh),
+    ])
+    assert result.exit_code == 0, result.output
+
+    # Ahora simulamos rollback manual cargando el tx log y disparándolo.
+    from rufino.runtime.transaction_log import TransactionLog
+    job_id = fake.installs[0]["job_id"]
+    tx_log = TransactionLog.load(rh / "tx" / f"install-ingest-{job_id}.json")
+    tx_log.rollback()
+
+    assert fake.uninstalls == [job_id], (
+        "scheduler_uninstall rollback debe ir por backend.uninstall(job_id=...)"
+    )
+
+
 def test_install_ingest_rolls_back_log_dir_on_backend_failure(tmp_path: Path, monkeypatch) -> None:
     """F9 — si backend.install lanza, el log_dir creado debe limpiarse."""
     vault = tmp_path / "vault"

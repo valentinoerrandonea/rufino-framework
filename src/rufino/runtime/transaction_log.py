@@ -70,11 +70,28 @@ def _plist_uninstall(target: str) -> None:
         p.unlink()
 
 
+def _scheduler_uninstall(target: str) -> None:
+    """Uninstall a scheduled job through the platform-appropriate backend.
+
+    ``target`` is a ``job_id`` (e.g. ``rufino-ingest-<slug>-<adapter>``).
+    Backend-agnostic so the same handler works for launchd on macOS and
+    cron on Linux; see ``runtime.scheduler.get_backend``.
+    """
+    from rufino.runtime.scheduler import get_backend
+    try:
+        get_backend().uninstall(job_id=target)
+    except Exception:
+        # Rollback is best-effort: if the backend is unreachable now,
+        # leave the entry in the log so a retry can pick it up.
+        pass
+
+
 register_rollback("rmdir", _rmdir)
 register_rollback("delete", _delete)
 register_rollback("rmdir_if_empty", _rmdir_if_empty)
 register_rollback("keychain_delete", _keychain_delete)
 register_rollback("plist_uninstall", _plist_uninstall)
+register_rollback("scheduler_uninstall", _scheduler_uninstall)
 
 
 class TransactionLog:

@@ -7,13 +7,17 @@ fall back to a naive commit (each augmented.md → destination, indices
 appended per-delta, no cross-grupo concept dedup).
 """
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from rufino.engine.process.batch.errors import ConsolidationError
-from rufino.engine.process.batch.runner_helper import run_claude
+from rufino.engine.process.batch.runner_helper import MAX_OUTPUT_BYTES, run_claude
+
+
+log = logging.getLogger(__name__)
 
 
 _CONSOLIDATOR_PREAMBLE = """\
@@ -105,6 +109,12 @@ async def run_consolidator(
     result = await run_claude(
         argv=argv, cwd=run_dir, env=env, timeout_seconds=timeout_seconds,
     )
+    if result.truncated:
+        log.warning(
+            "consolidator worker output truncated (cap=%d bytes). "
+            "consolidation-plan.json may be incomplete.",
+            MAX_OUTPUT_BYTES,
+        )
     if result.exit_code == 124:  # timeout
         return None
     if not plan_path.exists():

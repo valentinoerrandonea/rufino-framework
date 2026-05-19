@@ -355,19 +355,34 @@ def enable_embeddings_cmd(vault_root: Path, state_dir: Path | None, model: str) 
     # Snapshot pre-existing sqlite/graph indices so a mid-rebuild crash
     # (Ollama dropping mid-request, disk full, etc.) doesn't leave the
     # vault with a half-built index and embeddings.enabled=true mismatched.
+    # Use file-based snapshots (shutil.copyfile) instead of read_bytes() so
+    # vaults with 10k+ notes don't pin a multi-MB blob in memory during rebuild.
     meta_dir = vault_root / "_meta"
-    snapshots: dict[Path, bytes | None] = {}
+    snapshots: dict[Path, Path | None] = {}
     for fname in ("embeddings.sqlite", "graph.sqlite"):
         p = meta_dir / fname
-        snapshots[p] = p.read_bytes() if p.exists() else None
+        if p.exists():
+            bak = p.with_suffix(p.suffix + ".rufino-bak")
+            shutil.copyfile(p, bak)
+            snapshots[p] = bak
+        else:
+            snapshots[p] = None
 
     def _restore_indices() -> None:
-        for p, prior in snapshots.items():
-            if prior is None:
+        for p, bak in snapshots.items():
+            if bak is None:
                 if p.exists():
                     p.unlink()
             else:
-                p.write_bytes(prior)
+                bak.replace(p)
+
+    def _cleanup_snapshots() -> None:
+        for bak in snapshots.values():
+            if bak is not None and bak.exists():
+                try:
+                    bak.unlink()
+                except OSError:
+                    pass
 
     ql = QueryLayer(vault_root=vault_root, embedder=OllamaEmbedder(model=model))
     try:
@@ -379,6 +394,8 @@ def enable_embeddings_cmd(vault_root: Path, state_dir: Path | None, model: str) 
     except Exception:
         _restore_indices()
         raise
+    else:
+        _cleanup_snapshots()
     click.echo(f"Embeddings enabled for {slug} (model={model})")
 
 
@@ -635,12 +652,12 @@ def install_ingest_cmd(
             rollback="rmdir_if_empty",
         )
         apply_and_log(
-            tx, op="plist_install", target=job_id,
+            tx, op="scheduler_install", target=job_id,
             apply_fn=lambda: backend.install(
                 job_id=job_id, schedule=manifest.schedule,
                 cmd=cmd, log_path=log_path,
             ),
-            rollback="plist_uninstall",
+            rollback="scheduler_uninstall",
         )
     except (ValueError, NotImplementedError) as e:
         tx.rollback()

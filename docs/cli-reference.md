@@ -388,6 +388,12 @@ Variables de entorno opcionales:
 
 - `RUFINO_RERANKER_MODEL` — sobreescribe el modelo (default `BAAI/bge-reranker-base`).
 - `RUFINO_RERANKER_REVISION` — sobreescribe el commit SHA pineado.
+- `KMP_DUPLICATE_LIB_OK` — Rufino setea esto a `TRUE` con `setdefault()`
+  antes de importar `sentence_transformers` para evitar el abort en macOS
+  con `libomp.dylib` inicializada dos veces (system Python + wheel de
+  torch). Si tenés un setup OpenMP-consistente, podés exportar la variable
+  con un valor distinto antes de correr `rufino query` para anular el
+  workaround.
 
 Si el cross-encoder falla en runtime (lib no instalada, red caída,
 RAM/VRAM insuficiente) `query` degrada a la unión sin rerank y loggea

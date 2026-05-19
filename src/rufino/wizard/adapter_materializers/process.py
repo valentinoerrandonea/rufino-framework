@@ -48,26 +48,27 @@ def materialize_process(
         tx_log,
         op="write",
         target=str(manifest_path),
-        apply_fn=lambda: manifest_path.write_text(manifest_yaml, encoding="utf-8"),
+        apply_fn=lambda p=manifest_path, body=manifest_yaml: p.write_text(body, encoding="utf-8"),
         rollback="delete",
     )
     prompt_path = adapter_dir / "prompt.md"
+    prompt_body = spec.prompt_instructions
     apply_and_log(
         tx_log,
         op="write",
         target=str(prompt_path),
-        apply_fn=lambda: prompt_path.write_text(spec.prompt_instructions, encoding="utf-8"),
+        apply_fn=lambda p=prompt_path, body=prompt_body: p.write_text(body, encoding="utf-8"),
         rollback="delete",
     )
 
     if spec.transform_hook_body is not None:
         transform_path = adapter_dir / "transform.py"
-        body = spec.transform_hook_body
+        transform_body = spec.transform_hook_body
         apply_and_log(
             tx_log,
             op="write",
             target=str(transform_path),
-            apply_fn=lambda: transform_path.write_text(body, encoding="utf-8"),
+            apply_fn=lambda p=transform_path, body=transform_body: p.write_text(body, encoding="utf-8"),
             rollback="delete",
         )
     return adapter_dir

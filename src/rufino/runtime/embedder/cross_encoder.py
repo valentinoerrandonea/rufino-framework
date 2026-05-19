@@ -23,6 +23,13 @@ class CrossEncoderReranker:
 
     def _load_model(self) -> object:
         if self._model is None:
+            # Some macOS Python builds end up with libomp.dylib initialized
+            # twice (once by the system Python, once by torch's wheel).
+            # OpenMP aborts the process when it detects this. We default to
+            # the documented escape hatch *only if the user hasn't set the
+            # var themselves* — this is the same workaround conftest applies
+            # for the test suite, kept consistent for production runs.
+            os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
             from sentence_transformers import CrossEncoder
             model_name = os.environ.get("RUFINO_RERANKER_MODEL", self.model_name)
             revision = os.environ.get("RUFINO_RERANKER_REVISION", _DEFAULT_REVISION)
