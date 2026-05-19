@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import shutil
+import uuid
 from pathlib import Path
 
 import yaml
@@ -258,10 +259,17 @@ async def resume_pending_qa(
         tag_index_updates=[],
         log_entries=[f"batch-qa-resume run={run_id} slug={slug}"],
     )
-    tx = TransactionLog(run_dir / f"qa-resume-{slug}.tx.json")
+    # Unique tx-log path per attempt so two qa-poll runs (manual + launchd
+    # tick, retry after a hung worker, etc.) don't clobber each other's
+    # rollback log if they race on the same slug.
+    tx_suffix = uuid.uuid4().hex[:8]
+    tx = TransactionLog(run_dir / f"qa-resume-{slug}.{tx_suffix}.tx.json")
     try:
         commit(plan=plan, vault_root=vault_root, run_dir=run_dir, tx_log=tx)
-    except (FileNotFoundError, ValueError) as e:
+    except WorkerSessionExpiredError:
+        # Surface auth failures — qa-poll's caller (CLI) decides what to do.
+        raise
+    except Exception as e:  # commit already rolled back internally
         log.warning(
             "qa-resume commit failed for %s (run=%s): %s",
             slug, run_id, e,
