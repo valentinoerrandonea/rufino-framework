@@ -30,17 +30,24 @@ def materialize(
     state_dir: Path,
     install_hooks: bool = False,
 ) -> MaterializationResult:
-    """Big bang: create vault skeleton, materialize all adapters declared in the
-    spec (Ingest/Process/Output) and the Memory loop adapter manifest.
+    """Big bang: create the vault skeleton and materialize every adapter the
+    wizard declared in the spec.
+
+    Each Ingest, Process and Output adapter from the spec is rendered to a
+    full adapter dir under ``<state_dir>/../adapters/<primitive>/<vault-slug>/<adapter-name>/``
+    (peer to the state dir — typically ``~/.rufino/adapters/...`` when
+    ``state_dir=~/.rufino/state``). Each dir holds ``manifest.yaml`` plus
+    the primitive-specific files: ``prompt.md`` for Process, ``template.md``
+    for Output. The Memory loop
+    adapter manifest is written too so the user can install hooks later via
+    ``rufino install-memory-loop`` without re-running the wizard.
 
     Every disk-touching op is recorded in a TransactionLog and rolled back on
     failure, so a partial materialization leaves no trace under ``state_dir``
     or ``vault_root``.
 
-    `install_hooks` is opt-in (default False) because hooks intercept the
-    user's Claude Code conversations. The Memory loop manifest is still
-    written so the user can enable hooks later via `rufino install-memory-loop`
-    without re-running the wizard.
+    ``install_hooks`` is opt-in (default False) because hooks intercept the
+    user's Claude Code conversations.
     """
     errors: list[str] = []
 

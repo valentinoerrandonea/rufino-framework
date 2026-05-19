@@ -37,9 +37,9 @@ note: Note = ql.read_note("apuntes/ml-i/2026-05-17-regresion.md")
 
 | Mode | Backend | Notas |
 |---|---|---|
-| `lexical` | ripgrep sobre los markdown del vault | Exact match / regex. Rápido. Operativo en v0.0.2. |
-| `semantic` | Embeddings (Ollama + `nomic-embed-text`) + sqlite-vec | Similitud semántica. **Requiere embedder real — placeholder en v0.0.2 tira NotImplementedError.** |
-| `hybrid` | Combinación de lexical + semantic con re-ranking | Default cuando aterrice el embedder. |
+| `lexical` | ripgrep sobre los markdown del vault | Exact match / regex. Rápido. Operativo. |
+| `semantic` | Embeddings (Ollama + `nomic-embed-text`) + sqlite-vec | Similitud semántica. **Opt-in (v0.2.0+):** corré `rufino enable-embeddings --vault X` para activar. Si está disabled, `--mode semantic` exits 2. |
+| `hybrid` | Combinación de lexical + semantic con re-rank via cross-encoder | Default cuando embeddings están enabled. Mismo opt-in que `semantic`. |
 
 ## Backends
 
@@ -58,9 +58,9 @@ note: Note = ql.read_note("apuntes/ml-i/2026-05-17-regresion.md")
 
 - Embeddings persistidos en `<vault>/_meta/embeddings.sqlite` con `sqlite-vec`.
 - Default model: `nomic-embed-text` via Ollama.
-- File watcher reindexa al modificar notas (no implementado en v0.0.2 — requiere primer rebuild manual).
+- File watcher reindexa al modificar notas (no implementado todavía — requiere primer rebuild manual o `mcp-server --rebuild`).
 
-**Estado:** placeholder `_NoopEmbeddings` en `cli.py` — tira `NotImplementedError` si llega a `embed()`. El primitive está completo, solo falta wirear un embedder real.
+**Estado (v0.2.0):** `OllamaEmbedder` operativo opt-in. La config per-vault vive en `~/.rufino/state/vaults/<slug>.yaml`. Si `embeddings.enabled=false` (default tras materialize), el CLI resuelve `NoopEmbedder` y `--mode semantic`/`hybrid` exits 2 con mensaje accionable (`corré rufino enable-embeddings`).
 
 ### Grafo (SQLite triple store)
 
@@ -68,7 +68,7 @@ note: Note = ql.read_note("apuntes/ml-i/2026-05-17-regresion.md")
 
 - Parsea el frontmatter `triples:` de cada nota → carga en SQLite (`<vault>/_meta/triples.sqlite`).
 - Coerce defensivo: `entry["o"]` a `str()`, valida `entry["r"]` es string, rechaza None.
-- Reverse traversal soportado (encontrar notas que apuntan **a** este nodo).
+- Forward y reverse traversal soportados a `depth=1` (v0.2.0).
 
 ### Facetada
 
@@ -83,7 +83,7 @@ expression: "type=apunte_clase AND created >= last_monday() AND tags contains 'm
 | Consumer | Cómo invoca |
 |---|---|
 | **MCP server `ask-rufino-<slug>`** | Expone 6+ tools (`search_vault`, `read_note`, `traverse_relations`, `list_persons`, `list_concepts`, `vault_info`). Lanzado por Claude Code anfitrión. Registrado per-vault: cada vault recibe su propio entry en `~/.claude.json`. |
-| **CLI `rufino query`** | Modo lexical operativo. `semantic`/`hybrid` exits 2 hasta que aterrice embedder. |
+| **CLI `rufino query`** | Los tres modos operativos cuando embeddings están enabled; `semantic`/`hybrid` exits 2 si están disabled. |
 | **Output adapters** | Via `query_vault()` helper. |
 | **Wizard inicial** | Para chequear si el vault ya tiene algo similar al adapter a generar. |
 
@@ -93,7 +93,7 @@ expression: "type=apunte_clase AND created >= last_monday() AND tags contains 'm
 rufino query "<query>" --vault <X> --mode {lexical|semantic|hybrid}
 ```
 
-v0.0.2: solo `--mode lexical` funciona. Output: paths relativos al vault, uno por línea.
+Output: paths relativos al vault, uno por línea. `--mode semantic` y `--mode hybrid` requieren `rufino enable-embeddings --vault <X>` previo.
 
 ## MCP server
 

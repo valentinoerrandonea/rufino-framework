@@ -10,7 +10,7 @@ Shape de adapter usado por **Ingest**, **Process** y **Output**. Es el shape má
 ├── prompt.md               # required para Process; opcional para Ingest emit_augmented
 ├── template.md             # required para Output
 ├── fetcher.py              # opcional — Ingest con fetch custom
-└── transform.py            # opcional — hook de código determinista (deferido en v0.0.2)
+└── transform.py            # opcional — hook de código determinista (v0.2.0+)
 ```
 
 `adapter_name` es kebab-case y debe matchear el dir name + el campo `adapter_name` del manifest.
@@ -74,34 +74,35 @@ El runner se carga vía `importlib`, llama a `fetch(cursor)`, valida cada record
 
 Si tu adapter no tiene `fetcher.py`, el runner usa un fetcher genérico para fuentes simples (file watcher, glob).
 
-## transform.py (deferido)
+## transform.py (v0.2.0+)
 
-**Estado en v0.0.2:** el manifest acepta y parsea el campo `transform_hook: ./transform.py`, pero el framework **no invoca el script todavía**. Si lo declarás hoy, no se ejecuta.
+**Estado:** el manifest acepta `transform_hook: ./transform.py` y el runner lo invoca entre fetch/write (Ingest) o entre VALIDATE/CONSOLIDATE (Process). Errores en el hook hacen *graceful degrade* — el record original sigue su camino, se loggea un warning. El hook recibe JSON por stdin y devuelve JSON por stdout.
 
-### Planificado
-
-Firma del hook (cuando se implemente):
+### Firma
 
 ```python
-# transform.py
-def transform(input_dict: dict) -> dict:
-    """
-    Called after the LLM call in Process, or after fetch in Ingest.
-    Input via stdin JSON, output via stdout JSON.
-    """
-    # determinist computation:
-    monto_ars = input_dict["monto"] * exchange_rate(input_dict["moneda"])
-    return {**input_dict, "monto_ars": monto_ars}
+# transform.py — script ejecutable, no módulo
+import json, sys
+
+d = json.loads(sys.stdin.read())
+# determinist computation:
+d["monto_ars"] = d["monto"] * exchange_rate(d["moneda"])
+sys.stdout.write(json.dumps(d))
 ```
 
-### Sandbox planificado
+### Garantías actuales
+
+- **Path validation:** el script debe vivir dentro de `adapter_dir`; paths absolutos o que se escapan con `../` se rechazan loud.
+- **Graceful degrade:** exit code ≠ 0, stdout no parseable o exception del hook → el record original se mantiene; el batch no aborta.
+- **Per-record isolation (Process):** una falla en `note-a` no impide que `note-b` reciba la mutación del hook.
+
+### Sandbox planificado (v0.3+)
+
+Hoy el hook corre como `subprocess.run` sin restricciones de filesystem/network. Endurecimiento queda diferido:
 
 - **Filesystem readonly** excepto el path declarado en `transform_writes_to:` del manifest.
-- **Network bloqueado por default**; opt-in con `transform_needs_network: true` (loggea + requiere user OK al install).
-- **Timeout** 60s default, configurable hasta 300s.
+- **Network bloqueado por default**; opt-in con `transform_needs_network: true`.
 - **Resource limits** (Unix): `RLIMIT_AS 512 MB`, `RLIMIT_CPU 30s`.
-- **Env restringido:** `PATH=/usr/bin`, `PYTHONPATH=<framework_helpers_v1>`.
-- **Validador integrado:** smoke test con input dummy al instalar — si falla, bloquea install.
 
 Implementación parcial en `src/rufino/runtime/sandbox.py` (base de subprocess con timeout); resto pendiente.
 
@@ -161,7 +162,7 @@ Eso evita una clase entera de bugs donde un dispatcher mute state shared con su 
 3. Validator del primitive corre validate(manifest)
        ↓ (Errors → InstallationError / RuntimeError; warnings → log)
 4. Si Ingest + fetcher.py existe → importlib.import_module
-5. Si Process + transform.py existe → defer (no invocado en v0.0.2)
+5. Si Process + transform.py existe → invocar entre VALIDATE y CONSOLIDATE (graceful degrade ante errores)
 6. Si Output → cargar template.md
        ↓
 7. Dispatcher ejecuta el lifecycle del primitive

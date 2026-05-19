@@ -179,7 +179,7 @@ Flags:
 Modos:
 
 - **`light`** (operativo): solo update de indices + file move + frontmatter completion. Sin LLM, sin transform hook, sin Q&A. Útil para notas que vos / Claude escribieron a mano y solo necesitan ser registradas + linkeadas.
-- **`full`** (deferido — exits 2): pipeline completo single-note con LLM call, context injection, validation, transform hook, Q&A check, indices update. Para procesar un corpus en lote usá [`rufino process-batch`](#rufino-process-batch).
+- **`full`** (operativo desde v0.2.0): pipeline completo single-note con LLM call, context injection, validation, transform hook, Q&A check, indices update. Internamente stagea la nota en un tempdir-of-one y delega a `run_batch` con `workers=1, batch_size=1`. Para procesar un corpus en lote usá [`rufino process-batch`](#rufino-process-batch).
 - **`lint`** (operativo): valida sin modificar — chequea triple_vocabulary, frontmatter schema, wikilinks rotos.
 
 Exit codes:
@@ -187,8 +187,9 @@ Exit codes:
 | Code | Significado |
 |---|---|
 | 0 | OK |
-| 1 | Argumentos inválidos |
-| 2 | `--mode full` queda diferido (single-note); usá `process-batch` |
+| 1 | Argumentos inválidos o failure de procesamiento |
+| 3 | Q&A pendiente — revisá `<vault>/questions/` y corré `rufino qa-poll` |
+| 127 | `claude` no encontrado en `$PATH` |
 
 Detalle del primitive: [`primitives/process.md`](primitives/process.md).
 
@@ -251,7 +252,7 @@ Flags:
 | `adapter_dir` | sí | Carpeta del adapter (con `manifest.yaml` + `template.md`) |
 | `--vault PATH` | sí | Path al vault del usuario |
 
-Limitación actual: el query backend usado es **solo lexical** (placeholder `_NoopEmbeddings` hasta que aterrice Ollama). Si tu Output query expression requiere semántica, va a fallar.
+Nota: el query adapter inyectado (`_LexicalQueryAdapter`) usa el backend lexical. Si tu Output expression necesita similitud semántica, llamá `rufino query --mode semantic` desde un trigger externo y templatá sobre el resultado — los Output adapters no consumen `semantic`/`hybrid` directamente.
 
 Output:
 
@@ -310,10 +311,9 @@ Flags:
 | `query_string` | sí | — | El string a buscar |
 | `--vault PATH` | sí | — | Path al vault (debe existir) |
 | `--mode {lexical,semantic,hybrid}` | no | `hybrid` | Backend a usar |
+| `--state-dir PATH` | no | `~/.rufino/state` | State dir donde vive `vaults/<slug>.yaml` |
 
-Limitación actual: **solo `--mode lexical` funciona**. `--mode semantic` y `--mode hybrid` requieren un embedder real (Ollama + `nomic-embed-text`) que está deferido — el CLI exits con código 2 y un mensaje claro.
-
-Cuando aterrice el embedder real, `hybrid` será el default.
+`semantic` y `hybrid` son **opt-in (v0.2.0+)**: requieren `rufino enable-embeddings --vault <X>` previo (Ollama + `nomic-embed-text` corriendo). Si embeddings están disabled, el CLI exits con código 2 y un mensaje accionable. `lexical` siempre funciona.
 
 Detalle del primitive: [`primitives/query.md`](primitives/query.md).
 
@@ -342,6 +342,78 @@ Tools que expone: `search_vault`, `read_note`, `traverse_relations`, `list_perso
 
 ---
 
+## `rufino detect-embeddings`
+
+```bash
+rufino detect-embeddings
+```
+
+Chequea si Ollama está corriendo localmente y si el modelo `nomic-embed-text` está disponible. No modifica nada — solo reporta. Útil antes de `enable-embeddings` para diagnosticar por qué falla.
+
+---
+
+## `rufino enable-embeddings`
+
+```bash
+rufino enable-embeddings --vault <PATH> --state-dir <PATH> [--model <name>]
+```
+
+Activa el embedder semántico para un vault específico. Detecta Ollama, escribe la config en `<state-dir>/vaults/<slug>.yaml` con `embeddings.enabled: true`, y reconstruye los índices (semantic + graph). Si la detección falla (Ollama down / modelo no pulled), exits 1 y **no** escribe state.
+
+| Flag | Required | Default | Qué hace |
+|---|---|---|---|
+| `--vault PATH` | sí | — | Vault a habilitar |
+| `--state-dir PATH` | sí | — | Donde vive `vaults/<slug>.yaml` (típicamente `~/.rufino/state`) |
+| `--model NAME` | no | `nomic-embed-text` | Modelo Ollama a usar |
+
+---
+
+## `rufino disable-embeddings`
+
+```bash
+rufino disable-embeddings --vault <PATH> --state-dir <PATH>
+```
+
+Vuelve `embeddings.enabled` a `false`. Idempotente.
+
+---
+
+## `rufino install-ingest`
+
+```bash
+rufino install-ingest <adapter_dir> --vault <PATH> [--rufino-home <PATH>]
+```
+
+Materializa el cron del manifest de un Ingest adapter al scheduler del OS (`launchd` en macOS, `cron` en Linux). El job id queda como `rufino-ingest-<vault-slug>-<adapter-name>` para evitar colisiones cross-vault.
+
+| Flag | Required | Default | Qué hace |
+|---|---|---|---|
+| `adapter_dir` | sí | — | Directorio del Ingest adapter (con `manifest.yaml`) |
+| `--vault PATH` | sí | — | Vault al que pertenece este ingest |
+| `--rufino-home PATH` | no | `~/.rufino` | Rufino home (usado para `logs/`) |
+
+---
+
+## `rufino uninstall-ingest`
+
+```bash
+rufino uninstall-ingest <adapter_name> --vault <PATH>
+```
+
+Remueve el job scheduled correspondiente a `<vault-slug>-<adapter-name>`.
+
+---
+
+## `rufino list-ingests`
+
+```bash
+rufino list-ingests
+```
+
+Lista los jobs `rufino-ingest-*` instalados en el scheduler del OS, uno por línea.
+
+---
+
 ## Variables de entorno
 
 | Variable | Default | Qué hace |
@@ -356,6 +428,7 @@ Tools que expone: `search_vault`, `read_note`, `traverse_relations`, `list_perso
 | Code | Significado |
 |---|---|
 | 0 | OK |
-| 1 | Argumentos / spec / config inválido (input del usuario) |
-| 2 | Feature deferida / wiring no implementado |
+| 1 | Argumentos / spec / config inválido (input del usuario), o failure de procesamiento |
+| 2 | Feature opt-in disabled (ej. `--mode semantic` con embeddings off), o spec invalida en `materialize` |
+| 3 | Q&A pendiente — usuario debe contestar en `<vault>/questions/` y correr `qa-poll` |
 | 127 | Dependency externa faltante (`claude` CLI no encontrado, etc.) |

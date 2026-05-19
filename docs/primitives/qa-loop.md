@@ -127,13 +127,13 @@ dispatched=<N>
 
 Si hubo errores: salen a stderr.
 
-### Estado v0.0.2
+### Estado v0.2.0
 
-**Resumption real está pendiente.** El handler del CLI levanta `_ResumptionNotImplemented` a propósito (para no consumir el answer del usuario):
+`qa-poll` invoca `resume_pending_qa` para cada question con `answer:` no vacío:
 
-- `dispatched` siempre vuelve `0`
-- Si hay pending answers: CLI exits 2 y los archivos quedan intactos para retry
-- Cuando aterrice el wiring (Process pipeline en modo full + adapter resumption), una corrida re-procesará todos los pendings
+- `dispatched` cuenta cuántos workers se relanzaron exitosamente
+- Sesión expirada del worker → exit 1 con mensaje claro (la question queda intacta para reintento manual)
+- Sin pendings answered → `dispatched=0`, exit 0
 
 ## Worker handler-crash-safe
 
@@ -203,13 +203,13 @@ def callback(adapter_name: str, adapter_state: dict, answer: str) -> None:
     # ... actualizar indices, mover nota, etc ...
 ```
 
-## Estado v0.0.2
+## Estado v0.2.0
 
 - ✅ Template parser (markdown + jinja2 StrictUndefined + frontmatter)
 - ✅ QuestionStore (write/list/mark-answered, archivo movido a `questions/answered/`)
 - ✅ CallbackRegistry (atomic write, flock, chmod 0600, raise-on-corrupt)
 - ✅ Worker `poll_and_dispatch` (handler-crash-safe, list_pending skip+log)
-- ⚠ CLI `rufino qa-poll` — handler stub que devuelve exit 2 si hay pendings. Resumption real aterriza con Process modo full.
+- ✅ CLI `rufino qa-poll` — resume real vía `resume_pending_qa`; reporta `dispatched=N`
 
 ## Referencia
 

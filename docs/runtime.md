@@ -101,7 +101,7 @@ Mirá `tests/test_transaction_log.py` para ejemplos.
 
 ### Estado
 
-**Parcialmente implementado.** El framework planificó un sandbox `subprocess.run` para correr `transform.py` con timeout + env restringido + filesystem readonly + network bloqueado. Hoy hay base de `subprocess` invocation con timeout, pero los hooks `transform_hook` no se invocan todavía (deferido — el manifest acepta el campo pero el runner no lo usa).
+**v0.2.0:** los hooks `transform_hook` se invocan vía `subprocess.run` con timeout, validación de path (no escape de `adapter_dir`) y graceful degrade ante errores. El sandbox planificado (filesystem readonly, network bloqueado, RLIMITs) queda diferido a v0.3+ — hoy el hook corre con permisos del proceso parent.
 
 ### API planificada
 

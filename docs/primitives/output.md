@@ -98,7 +98,7 @@ adapter=<name> deliveries=<N> errors=<N>
 
 Si `errors > 0`, salen a stderr.
 
-**Limitación v0.0.2:** el Query backend usado por la CLI es **solo lexical** (`_LexicalQueryAdapter` con `_NoopEmbeddings` placeholder). Si tu Output query expression requiere semántica, va a fallar. Aterriza cuando se cierre la integración del embedder real.
+**Nota:** el Query adapter usado por la CLI (`_LexicalQueryAdapter`) opera sobre el backend lexical. Output adapters no consumen `semantic`/`hybrid` directamente — si tu query expression necesita similitud semántica, usá `rufino query --mode semantic` desde un trigger externo y pasale el resultado al output (v0.2.0 mantiene esta separación).
 
 ## Ejemplo: digest-semanal
 
@@ -219,13 +219,13 @@ channels = {
 dispatch_output(adapter_dir=..., query=..., channels=channels, ...)
 ```
 
-## Estado v0.0.2
+## Estado v0.2.0
 
 - ✅ `file`, `email`, `webhook`, `push` channels — operativos
 - ✅ `trigger.type: cron` — operativo
 - ✅ `trigger.type: on_event` — engine listo, requiere wiring con publisher de eventos (Process emite `on_new(<note_type>)`)
 - ✅ jinja2 StrictUndefined renderer — operativo
-- ⚠ Query backend limitado a lexical (placeholder embedder hasta que aterrice Ollama)
+- ✅ Lexical Query backend operativo; `semantic`/`hybrid` opt-in vía `rufino enable-embeddings`
 
 ## Referencia
 

@@ -47,7 +47,7 @@ Verificá:
 
 ```bash
 which rufino       # → /Users/<vos>/.local/bin/rufino (o equivalente de pipx)
-rufino version     # → 0.1.0
+rufino version     # → 0.2.0
 ```
 
 > `process-batch` requiere `mammoth` y `python-pptx` (declarados en
