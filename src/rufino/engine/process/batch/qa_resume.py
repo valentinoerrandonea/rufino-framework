@@ -35,6 +35,13 @@ def _read_question(qfile: Path) -> dict:
         return {}
     _, fm_text, body = text.split("---", 2)
     fm = yaml.safe_load(fm_text) or {}
+    # qa_pending writes ``answer: ""`` into the frontmatter and the user fills
+    # it there. Older question files (pre-v0.1.0) carry it as a body line; keep
+    # reading that as a fallback so already-written questions still resume.
+    fm_answer = fm.get("answer")
+    if isinstance(fm_answer, str) and fm_answer.strip():
+        fm["answer"] = fm_answer.strip()
+        return fm
     answer = ""
     for line in body.splitlines():
         if line.strip().startswith("answer:"):
