@@ -197,3 +197,57 @@ def test_validator_synthesizes_failure_for_missing_augmented(tmp_path):
     assert len(report.failed) == 1
     assert report.failed[0].slug == "n1"
     assert any("no output" in e for e in report.failed[0].errors)
+
+
+def test_validator_flags_aug_plus_pending_as_failure(tmp_path):
+    """Malformed worker output: both augmented and pending for the same slug
+    must surface as a failure rather than letting precedence silently pick one."""
+    manifest = parse_worker_manifest(_MANIFEST)
+    staging = tmp_path / "workers" / "w001"
+    (staging / "augmented").mkdir(parents=True)
+    (staging / "pending").mkdir(parents=True)
+    (staging / "deltas").mkdir(parents=True)
+    (staging / "augmented" / "n1.md").write_text(
+        "---\nslug: n1\n---\n# n1\n", encoding="utf-8",
+    )
+    (staging / "deltas" / "n1.json").write_text("{}", encoding="utf-8")
+    (staging / "pending" / "n1.json").write_text(
+        '{"trigger": "t", "context": "c"}', encoding="utf-8",
+    )
+    assignment = WorkerAssignment(
+        worker_id="w001", group="root",
+        notes=(tmp_path / "inbox" / "root" / "n1.md",),
+    )
+    report = validate_worker_output(staging, manifest, assignment=assignment)
+    assert len(report.failed) == 1
+    assert report.failed[0].slug == "n1"
+    assert any("both augmented and pending" in e for e in report.failed[0].errors)
+
+
+def test_validator_detects_stem_collision_within_assignment(tmp_path):
+    """Nested paths can produce two notes with the same stem. The validator
+    must flag the second occurrence as a failure rather than silently
+    misreporting using the first note's artifacts."""
+    manifest = parse_worker_manifest(_MANIFEST)
+    staging = tmp_path / "workers" / "w001"
+    (staging / "augmented").mkdir(parents=True)
+    (staging / "deltas").mkdir(parents=True)
+    (staging / "augmented" / "n1.md").write_text(
+        "---\nslug: n1\n---\n# n1\n", encoding="utf-8",
+    )
+    (staging / "deltas" / "n1.json").write_text("{}", encoding="utf-8")
+    assignment = WorkerAssignment(
+        worker_id="w001", group="root",
+        notes=(
+            tmp_path / "inbox" / "root" / "a" / "n1.md",
+            tmp_path / "inbox" / "root" / "b" / "n1.md",
+        ),
+    )
+    report = validate_worker_output(staging, manifest, assignment=assignment)
+    # At least one failure must explicitly call out the collision.
+    collision_failures = [
+        f for f in report.failed
+        if any("collision" in e for e in f.errors)
+    ]
+    assert len(collision_failures) == 1
+    assert collision_failures[0].slug == "n1"

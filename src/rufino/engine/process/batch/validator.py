@@ -137,15 +137,47 @@ def validate_worker_output(
             (passed if result.passed else failed).append(result)
         return ValidationReport(passed=tuple(passed), failed=tuple(failed))
 
+    # Detect stem collisions within the assignment (nested paths can produce
+    # two notes with the same stem). Without this, the second iteration's
+    # file lookups would find the first one's artifacts and silently misreport.
+    stems_seen: set[str] = set()
     for note_path in assignment.notes:
         slug = note_path.stem
+        if slug in stems_seen:
+            failed.append(NoteValidation(
+                slug=slug,
+                augmented_path=aug_dir / f"{slug}.md",
+                delta_path=None,
+                errors=(
+                    f"slug collision within assignment for slug={slug!r}; "
+                    "stager should have caught this",
+                ),
+            ))
+            continue
+        stems_seen.add(slug)
+
         aug_path = aug_dir / f"{slug}.md"
         delta_path = delta_dir / f"{slug}.json"
         pending_path = pending_dir / f"{slug}.json"
-        if aug_path.exists():
+        aug_exists = aug_path.exists()
+        pending_exists = pending_path.exists()
+
+        if aug_exists and pending_exists:
+            # Malformed worker output: a note cannot be both finalized and
+            # pending. Surface as failure rather than letting precedence
+            # silently pick one.
+            failed.append(NoteValidation(
+                slug=slug,
+                augmented_path=aug_path,
+                delta_path=delta_path if delta_path.exists() else None,
+                errors=(
+                    f"worker produced both augmented and pending for slug={slug!r}",
+                ),
+            ))
+        elif aug_exists:
             result = validate_one(aug_path, delta_path, manifest)
             (passed if result.passed else failed).append(result)
-        elif pending_path.exists():
+        elif pending_exists:
             # Pending Q&A is a valid non-failure terminal state; do not list.
             continue
         else:
