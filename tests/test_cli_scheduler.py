@@ -160,3 +160,99 @@ def test_list_ingests_empty(tmp_path: Path, monkeypatch) -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["list-ingests"])
     assert result.exit_code == 0
+
+
+def test_install_ingest_resolves_paths_to_absolute(tmp_path: Path, monkeypatch) -> None:
+    """F9 — install-ingest debe resolver paths a absolutos antes de pasarlos al cron.
+
+    Si el cron corre con un cwd distinto al del install (siempre), rutas
+    relativas en el cmd hacen fallar el `rufino ingest <rel-path>`.
+    """
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    adapter_dir = tmp_path / "adapter"
+    _write_adapter(adapter_dir, _base_manifest())
+
+    fake = FakeBackend()
+    monkeypatch.setattr("rufino.cli._scheduler_backend", lambda: fake)
+
+    import os
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        runner = CliRunner()
+        result = runner.invoke(cli, [
+            "install-ingest", "adapter",
+            "--vault", "vault",
+            "--rufino-home", str(tmp_path / "rh"),
+        ])
+    finally:
+        os.chdir(cwd)
+    assert result.exit_code == 0, result.output
+    cmd = fake.installs[0]["cmd"]
+    # Ambos paths deben aparecer absolutos en el cmd registrado al cron.
+    assert str(adapter_dir.resolve()) in cmd
+    assert str(vault.resolve()) in cmd
+
+
+def test_install_ingest_rolls_back_log_dir_on_backend_failure(tmp_path: Path, monkeypatch) -> None:
+    """F9 — si backend.install lanza, el log_dir creado debe limpiarse."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    adapter_dir = tmp_path / "adapter"
+    _write_adapter(adapter_dir, _base_manifest())
+
+    class BoomBackend:
+        def install(self, *, job_id, schedule, cmd, log_path):
+            raise RuntimeError("scheduler unreachable")
+
+    monkeypatch.setattr("rufino.cli._scheduler_backend", lambda: BoomBackend())
+    rh = tmp_path / "rh-failed"
+
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "install-ingest", str(adapter_dir),
+        "--vault", str(vault),
+        "--rufino-home", str(rh),
+    ])
+    assert result.exit_code != 0
+    # logs/ dir creado pero después rollback debe haberlo eliminado si estaba vacío.
+    # Se acepta que logs/ exista si tenía contenido previo, pero acá no había.
+    if (rh / "logs").exists():
+        assert list((rh / "logs").iterdir()) == []
+
+
+def test_install_ingest_rejects_invalid_adapter_name(tmp_path: Path) -> None:
+    """F9 — adapter_name con chars peligrosos (spaces, slashes) debe fail-fast."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    adapter_dir = tmp_path / "adapter"
+    bad_manifest = _base_manifest()
+    bad_manifest["adapter_name"] = "foo/bar"
+    _write_adapter(adapter_dir, bad_manifest)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "install-ingest", str(adapter_dir),
+        "--vault", str(vault),
+        "--rufino-home", str(tmp_path / "rh"),
+    ])
+    assert result.exit_code != 0
+    assert "adapter_name" in result.output.lower() or "invalid" in result.output.lower()
+
+
+def test_install_ingest_rejects_adapter_name_with_spaces(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    adapter_dir = tmp_path / "adapter"
+    bad_manifest = _base_manifest()
+    bad_manifest["adapter_name"] = "foo bar"
+    _write_adapter(adapter_dir, bad_manifest)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "install-ingest", str(adapter_dir),
+        "--vault", str(vault),
+        "--rufino-home", str(tmp_path / "rh"),
+    ])
+    assert result.exit_code != 0

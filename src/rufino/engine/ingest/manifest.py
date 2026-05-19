@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import Any
 import yaml
@@ -9,6 +10,8 @@ class ManifestParseError(Exception):
 
 VALID_OUTPUT_MODES = {"emit_fact", "import_raw", "emit_augmented"}
 VALID_TRIGGERS = {"immediate", "defer"}
+# Restrict to characters safe for cron entries / launchd Label keys.
+_ADAPTER_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 @dataclass(frozen=True)
@@ -45,6 +48,13 @@ def parse_ingest_manifest(yaml_text: str) -> IngestAdapterManifest:
     missing = [f for f in _REQUIRED_SHARED if f not in raw]
     if missing:
         raise ManifestParseError(f"Missing required fields: {missing}")
+
+    adapter_name = raw["adapter_name"]
+    if not isinstance(adapter_name, str) or not _ADAPTER_NAME_RE.match(adapter_name):
+        raise ManifestParseError(
+            f"adapter_name must match {_ADAPTER_NAME_RE.pattern!r} "
+            f"(safe chars for cron/launchd), got {adapter_name!r}"
+        )
 
     mode = raw["output_mode"]
     if mode not in VALID_OUTPUT_MODES:

@@ -574,6 +574,14 @@ def install_ingest_cmd(
     from rufino.engine.ingest.manifest import (
         ManifestParseError, parse_ingest_manifest,
     )
+    from rufino.runtime.transaction_log import TransactionLog, apply_and_log
+
+    # Resolve every user-supplied path to an absolute one BEFORE writing it
+    # to the cron entry. The scheduler runs the cmd with an unknown cwd, so
+    # any relative path would silently break the scheduled job at runtime.
+    adapter_dir = adapter_dir.expanduser().resolve(strict=True)
+    vault_root = vault_root.expanduser().resolve(strict=True)
+
     manifest_path = adapter_dir / "manifest.yaml"
     if not manifest_path.exists():
         raise click.UsageError(
@@ -584,9 +592,8 @@ def install_ingest_cmd(
     except ManifestParseError as e:
         raise click.UsageError(f"invalid ingest manifest: {e}") from e
 
-    home = rufino_home or (Path.home() / ".rufino")
+    home = (rufino_home or (Path.home() / ".rufino")).expanduser().resolve()
     logs_dir = home / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
 
     job_id = _ingest_job_id(vault_root, manifest.adapter_name)
     log_path = str(logs_dir / f"{job_id}.log")
@@ -597,13 +604,30 @@ def install_ingest_cmd(
     )
 
     backend = _scheduler_backend()
+    tx_dir = home / "tx"
+    tx_dir.mkdir(parents=True, exist_ok=True)
+    tx_log_path = tx_dir / f"install-ingest-{job_id}.json"
+    tx = TransactionLog(tx_log_path)
     try:
-        backend.install(
-            job_id=job_id, schedule=manifest.schedule,
-            cmd=cmd, log_path=log_path,
+        apply_and_log(
+            tx, op="mkdir", target=str(logs_dir),
+            apply_fn=lambda: logs_dir.mkdir(parents=True, exist_ok=True),
+            rollback="rmdir_if_empty",
+        )
+        apply_and_log(
+            tx, op="plist_install", target=job_id,
+            apply_fn=lambda: backend.install(
+                job_id=job_id, schedule=manifest.schedule,
+                cmd=cmd, log_path=log_path,
+            ),
+            rollback="plist_uninstall",
         )
     except (ValueError, NotImplementedError) as e:
+        tx.rollback()
         raise click.UsageError(f"could not install job: {e}") from e
+    except Exception:
+        tx.rollback()
+        raise
     click.echo(f"installed {job_id} (schedule: {manifest.schedule})")
 
 
