@@ -9,6 +9,9 @@ from rufino.engine.memory_loop.installer import (
 )
 from rufino.runtime.transaction_log import TransactionLog, apply_and_log
 from rufino.runtime.vault_slug import compute_vault_slug
+from rufino.wizard.adapter_materializers.ingest import materialize_ingest
+from rufino.wizard.adapter_materializers.output import materialize_output
+from rufino.wizard.adapter_materializers.process import materialize_process
 from rufino.wizard.spec_schema import WizardSpec
 
 
@@ -27,16 +30,16 @@ def materialize(
     state_dir: Path,
     install_hooks: bool = False,
 ) -> MaterializationResult:
-    """Big bang: create vault skeleton + (optionally) install Memory loop adapter.
+    """Big bang: create vault skeleton, materialize all adapters declared in the
+    spec (Ingest/Process/Output) and the Memory loop adapter manifest.
 
     Every disk-touching op is recorded in a TransactionLog and rolled back on
-    failure. v1 wires only the Memory loop installer; Ingest/Process/Output
-    installers are invoked separately via the per-primitive CLIs until they're
-    folded into this orchestrator in a follow-up iteration.
+    failure, so a partial materialization leaves no trace under ``state_dir``
+    or ``vault_root``.
 
     `install_hooks` is opt-in (default False) because hooks intercept the
-    user's Claude Code conversations. The adapter manifest is still written
-    so the user can enable hooks later via `rufino install-memory-loop`
+    user's Claude Code conversations. The Memory loop manifest is still
+    written so the user can enable hooks later via `rufino install-memory-loop`
     without re-running the wizard.
     """
     errors: list[str] = []
@@ -136,6 +139,23 @@ def materialize(
             apply_fn=lambda: manifest_path.write_text(manifest_text, encoding="utf-8"),
             rollback="delete",
         )
+
+        # Materialize every adapter declared in the spec. The materializers
+        # use the same tx_log, so any failure here rolls back the partially
+        # written adapters together with the vault skeleton + memory loop dir.
+        base_dir = state_dir.parent
+        for ingest_spec in spec.sources:
+            materialize_ingest(
+                spec=ingest_spec, base_dir=base_dir, vault_slug=slug, tx_log=tx_log,
+            )
+        for process_spec in spec.processing:
+            materialize_process(
+                spec=process_spec, base_dir=base_dir, vault_slug=slug, tx_log=tx_log,
+            )
+        for output_spec in spec.outputs:
+            materialize_output(
+                spec=output_spec, base_dir=base_dir, vault_slug=slug, tx_log=tx_log,
+            )
 
         if install_hooks:
             try:

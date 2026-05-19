@@ -263,7 +263,15 @@ def bootstrap_cmd(dry_run: bool) -> None:
             "claude",
             "--system-prompt", system_prompt,
             "--allowedTools",
-            "Bash(rufino materialize:*),Bash(rufino query:*),Read,Write",
+            (
+                "Bash(rufino materialize:*),"
+                "Bash(rufino query:*),"
+                "Bash(rufino process-batch:*),"
+                "Bash(rufino detect-embeddings:*),"
+                "Bash(rufino enable-embeddings:*),"
+                "Bash(rufino install-ingest:*),"
+                "Read,Write"
+            ),
             "--",  # end-of-options marker so --allowedTools doesn't slurp the prompt
             "Saludá y arrancá la entrevista del wizard.",
         ],

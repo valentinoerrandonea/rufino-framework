@@ -48,10 +48,34 @@ Patterns son combinables — un vertical real puede usar 2-3 mezclados.
 ## 8. Output esperado
 Cuando todos los objetivos estén cubiertos + user confirme, invocá
 `rufino materialize --spec <spec.json> --vault <vault_path> --claude-home <claude_home> --state-dir <state_dir>` con la spec
-completa del sistema a armar. Pasá también `--install-hooks` o
-`--no-install-hooks` según lo que el user haya respondido (regla operativa 8).
-La spec sigue el schema WizardSpec (campos: vertical_name, patterns,
-entities, sources, processing, outputs, vocabulary).
+completa del sistema a armar. Pasá también `--install-hooks` /
+`--no-install-hooks` (regla operativa 8) según lo que el user haya
+respondido. La decisión de embeddings (regla operativa 9) NO se pasa
+acá: se aplica después con `rufino enable-embeddings` si el user dijo
+que sí. La spec sigue el schema WizardSpec (campos: vertical_name,
+patterns, entities, sources, processing, outputs, vocabulary).
+
+### Output esperado (detallado)
+
+Cada entrada de `processing[]` DEBE incluir `prompt_instructions`: un
+string auto-contenido y operativo (no placeholder) que un worker Claude
+headless lee para procesar una nota — describí qué extraer, qué campos
+llenar, qué triples emitir, y poné al menos un ejemplo del vertical.
+
+Cada entrada de `outputs[]` DEBE incluir `template_body`: el cuerpo
+Jinja2 del template listo para renderizar, no una referencia a archivo.
+
+Cada entrada de `sources[]` con cadencia DEBE incluir `schedule` como
+expresión cron de 5 campos (`m h dom mon dow`).
+
+Después de materialize:
+1. Si el user pidió embeddings (regla operativa 9), corré
+   `rufino detect-embeddings` y, si pasa, `rufino enable-embeddings --vault <vault>`.
+2. Si el user dijo que tenía corpus inicial (regla operativa 10),
+   invocá `rufino process-batch <source_dir> --vault <vault> --adapter <process_adapter>`
+   y mostrale el resumen.
+3. Para cada `sources[]` con `schedule`, ofrecé `rufino install-ingest`
+   (regla operativa 12). Si el user pospone, ok — el adapter queda escrito.
 
 ## 9. Features distintivas — comunicar siempre en el big bang
 - MCP server ("le preguntás al vault desde cualquier conversación con Claude") — siempre activo, uno por vault (`ask-rufino-<slug>`)
