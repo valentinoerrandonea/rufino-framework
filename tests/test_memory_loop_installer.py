@@ -22,8 +22,8 @@ def test_install_creates_hooks_and_substitutes(tmp_path: Path, tmp_vault: Path):
         log=tx_log,
     )
 
-    init_hook = claude_home / "hooks" / "rufino-memory-loop-init.sh"
-    stop_hook = claude_home / "hooks" / "rufino-memory-loop-stop.sh"
+    init_hook = claude_home / "hooks" / "rufino-memory-loop-init-vault.sh"
+    stop_hook = claude_home / "hooks" / "rufino-memory-loop-stop-vault.sh"
     assert init_hook.exists()
     assert stop_hook.exists()
 
@@ -46,7 +46,7 @@ def test_install_writes_remember_command(tmp_path: Path, tmp_vault: Path):
         log=tx_log,
     )
 
-    remember = claude_home / "commands" / "remember.md"
+    remember = claude_home / "commands" / "remember-vault.md"
     assert remember.exists()
     content = remember.read_text()
     assert "apunte_clase" in content
@@ -68,7 +68,7 @@ def test_install_records_rollback(tmp_path: Path, tmp_vault: Path):
     assert len(tx_log.entries()) >= 2  # at least init hook + stop hook
 
     tx_log.rollback()
-    assert not (claude_home / "hooks" / "rufino-memory-loop-init.sh").exists()
+    assert not (claude_home / "hooks" / "rufino-memory-loop-init-vault.sh").exists()
 
 
 def test_install_fails_on_invalid_manifest(tmp_path: Path, tmp_vault: Path):
@@ -159,7 +159,7 @@ def test_mkdir_rollback_preserves_external_content(tmp_path: Path, tmp_vault: Pa
 
     tx_log.rollback()
 
-    assert not (claude_home / "hooks" / "rufino-memory-loop-init.sh").exists()
+    assert not (claude_home / "hooks" / "rufino-memory-loop-init-vault.sh").exists()
     assert foreign.exists(), "rollback wiped a file the installer did not create"
 
 
@@ -167,7 +167,7 @@ def test_install_refuses_overwrite_when_hook_already_exists(tmp_path: Path, tmp_
     """Re-installing must NOT clobber a prior install (rollback would destroy it)."""
     claude_home = tmp_path / "claude_home"
     (claude_home / "hooks").mkdir(parents=True)
-    (claude_home / "hooks" / "rufino-memory-loop-init.sh").write_text("# existing user content\n")
+    (claude_home / "hooks" / "rufino-memory-loop-init-vault.sh").write_text("# existing user content\n")
 
     log = TransactionLog(tmp_path / "log.json")
     with pytest.raises(InstallationError, match="already installed"):
@@ -180,5 +180,5 @@ def test_install_refuses_overwrite_when_hook_already_exists(tmp_path: Path, tmp_
 
     # Pre-existing content survived.
     assert "existing user content" in (
-        claude_home / "hooks" / "rufino-memory-loop-init.sh"
+        claude_home / "hooks" / "rufino-memory-loop-init-vault.sh"
     ).read_text()

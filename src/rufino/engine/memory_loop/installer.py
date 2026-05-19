@@ -7,6 +7,7 @@ from rufino.runtime.transaction_log import (
     apply_and_log,
     register_rollback,
 )
+from rufino.runtime.vault_slug import compute_vault_slug
 
 
 class InstallationError(Exception):
@@ -107,14 +108,20 @@ def install_memory_loop(
                 f"{_HEREDOC_MARKER!r} on a line by itself"
             )
 
+    slug = compute_vault_slug(vault_path)
     hooks_dir = claude_home / "hooks"
     commands_dir = claude_home / "commands"
-    # Refuse to clobber a prior install: rollback would destroy the previous
-    # good state. User must uninstall before re-installing.
+    init_name = f"rufino-memory-loop-init-{slug}.sh"
+    stop_name = f"rufino-memory-loop-stop-{slug}.sh"
+    remember_name = f"remember-{slug}.md"
+
+    # Refuse to clobber a prior install of THIS vault: rollback would destroy
+    # the previous good state. Two different vaults coexist because their
+    # filenames carry distinct slugs.
     for existing in (
-        hooks_dir / "rufino-memory-loop-init.sh",
-        hooks_dir / "rufino-memory-loop-stop.sh",
-        commands_dir / "remember.md",
+        hooks_dir / init_name,
+        hooks_dir / stop_name,
+        commands_dir / remember_name,
     ):
         if existing.exists():
             raise InstallationError(
@@ -138,7 +145,7 @@ def install_memory_loop(
         .replace("__VERTICAL_NAME__", manifest.vertical_name)
         .replace("__RULES_CONCAT__", rules_concat)
     )
-    init_target = hooks_dir / "rufino-memory-loop-init.sh"
+    init_target = hooks_dir / init_name
     apply_and_log(
         log,
         op="write",
@@ -147,7 +154,7 @@ def install_memory_loop(
         rollback="delete",
     )
 
-    stop_target = hooks_dir / "rufino-memory-loop-stop.sh"
+    stop_target = hooks_dir / stop_name
     apply_and_log(
         log,
         op="write",
@@ -160,11 +167,12 @@ def install_memory_loop(
         f"- `{entity}` → `{path}`" for entity, path in manifest.note_destinations.items()
     )
     remember_content = (
-        f"# /remember (vertical: {manifest.vertical_name})\n\n"
-        f"Cuando el user te pida guardar algo al vault, decidí el destino según el tipo:\n\n"
+        f"# /remember-{slug} (vertical: {manifest.vertical_name})\n\n"
+        f"Cuando el user te pida guardar algo al vault `{vault_path}`, "
+        f"decidí el destino según el tipo:\n\n"
         f"{destinations_md}\n"
     )
-    remember_target = commands_dir / "remember.md"
+    remember_target = commands_dir / remember_name
     apply_and_log(
         log,
         op="write",

@@ -59,6 +59,7 @@ def test_materialize_rolls_back_adapter_dir_on_install_failure(
 ):
     """If install_memory_loop fails, adapter_dir + manifest.yaml must be cleaned."""
     from rufino.engine.memory_loop.installer import InstallationError
+    from rufino.runtime.vault_slug import compute_vault_slug
     import rufino.wizard.materializer as mat_mod
 
     def boom(**kwargs):
@@ -67,14 +68,16 @@ def test_materialize_rolls_back_adapter_dir_on_install_failure(
 
     spec = validate_spec(MINIMAL_SPEC)
     state_dir = tmp_path / ".rufino-state"
+    vault = tmp_path / "vault"
     result = materialize(
         spec=spec,
-        vault_root=tmp_path / "vault",
+        vault_root=vault,
         claude_home=tmp_path / ".claude",
         state_dir=state_dir,
+        install_hooks=True,
     )
     assert result.success is False
-    adapter_dir = state_dir.parent / "adapters" / "memory_loop" / spec.vertical_name
+    adapter_dir = state_dir.parent / "adapters" / "memory_loop" / compute_vault_slug(vault)
     manifest = adapter_dir / "manifest.yaml"
     assert not manifest.exists(), "manifest.yaml leaked after failed install"
     assert not adapter_dir.exists(), "adapter_dir leaked after failed install"
@@ -107,14 +110,16 @@ def test_materialize_returns_result_when_state_dir_unwritable(
 def test_materialize_fails_loud_when_adapter_dir_already_exists(tmp_path: Path):
     """Pre-existing adapter_dir (leftover from failed run or concurrent process)
     must cause a clean failure, not silently overwrite manifest.yaml."""
+    from rufino.runtime.vault_slug import compute_vault_slug
     spec = validate_spec(MINIMAL_SPEC)
     state_dir = tmp_path / ".rufino-state"
-    adapter_dir = state_dir.parent / "adapters" / "memory_loop" / spec.vertical_name
+    vault = tmp_path / "vault"
+    adapter_dir = state_dir.parent / "adapters" / "memory_loop" / compute_vault_slug(vault)
     adapter_dir.mkdir(parents=True)
 
     result = materialize(
         spec=spec,
-        vault_root=tmp_path / "vault",
+        vault_root=vault,
         claude_home=tmp_path / ".claude",
         state_dir=state_dir,
     )
@@ -144,6 +149,7 @@ def test_materialize_rolls_back_state_dir_when_we_created_it(tmp_path: Path, mon
         vault_root=tmp_path / "vault",
         claude_home=tmp_path / ".claude",
         state_dir=state_dir,
+        install_hooks=True,
     )
     assert result.success is False
     # We created state_dir → must be rolled back (rmdir_if_empty leaves only empties).
@@ -168,6 +174,7 @@ def test_materialize_preserves_pre_existing_state_dir_on_failure(tmp_path: Path,
         vault_root=tmp_path / "vault",
         claude_home=tmp_path / ".claude",
         state_dir=state_dir,
+        install_hooks=True,
     )
     assert result.success is False
     # We did NOT create state_dir → must NOT be rolled back.

@@ -56,3 +56,14 @@ def test_build_system_prompt_is_cached():
     a = build_system_prompt()
     b = build_system_prompt()
     assert a is b
+
+
+def test_prompt_instructs_to_ask_about_hooks():
+    """Regression guard: the wizard must ask before installing Claude Code
+    hooks (opt-in) and pass the matching flag to `rufino materialize`."""
+    prompt = build_system_prompt()
+    assert "--install-hooks" in prompt
+    assert "--no-install-hooks" in prompt
+    # The user-facing question and the checklist item both anchor the behavior.
+    assert "captura" in prompt.lower() or "capturar" in prompt.lower()
+    assert "opt-in" in prompt.lower()

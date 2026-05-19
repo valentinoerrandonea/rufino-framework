@@ -63,17 +63,18 @@ Flags:
 | `--vault PATH` | sí | Path donde materializar el vault del usuario |
 | `--claude-home PATH` | sí | Path al `~/.claude/` del usuario (memory loop se instala acá) |
 | `--state-dir PATH` | sí | Path donde guardar el state del framework (típico: `~/.rufino/state`) |
+| `--install-hooks` / `--no-install-hooks` | no | Instalar los hooks de Claude Code que capturan conversaciones a este vault. Opt-in (default: `--no-install-hooks`) |
 
 Lo que hace:
 
 1. Lee y valida el spec con `validate_spec()`. Si es inválido, exit 1 con `SpecError`.
-2. Llama `materialize(spec, vault_root, claude_home, state_dir)`:
+2. Llama `materialize(spec, vault_root, claude_home, state_dir, install_hooks=...)`:
    - Crea el vault skeleton
    - Escribe `perfil.md` desde el spec
    - Materializa cada adapter (Ingest, Process, Output, Memory loop)
-   - Instala el memory loop en `claude_home`
+   - Instala el memory loop en `claude_home` **solo si `--install-hooks`**
    - Todo dentro de un `TransactionLog` — falla → rollback completo
-3. Si OK: registra el MCP server `ask-rufino` en `~/.claude.json` apuntando al vault recién creado
+3. Siempre: registra un MCP server **per-vault** (`ask-rufino-<slug>`, donde `<slug>` deriva del basename del vault) en `~/.claude.json` apuntando al vault recién creado. Esto permite que coexistan múltiples vaults sin pisarse.
 
 Exit codes:
 
@@ -87,7 +88,7 @@ Output OK:
 
 ```
 Vault materialized at /Users/beto/facultad
-Registered ask-rufino MCP at /Users/beto/.claude.json
+Registered ask-rufino-facultad MCP at /Users/beto/.claude.json
 ```
 
 ---
@@ -282,7 +283,7 @@ Detalle del primitive: [`primitives/query.md`](primitives/query.md).
 rufino mcp-server --vault <PATH> [--no-rebuild]
 ```
 
-Levanta el MCP server `ask-rufino` por stdio. Normalmente lo invoca Claude Code (registrado en `~/.claude.json` por el wizard / installer), no vos a mano.
+Levanta el MCP server por stdio. Normalmente lo invoca Claude Code (registrado en `~/.claude.json` como `ask-rufino-<slug>` por el wizard / installer), no vos a mano. Cada vault tiene su propio entry — pasá `--vault` apuntando al que querés consultar.
 
 Flags:
 

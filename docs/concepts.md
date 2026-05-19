@@ -30,7 +30,7 @@ Componente core del framework con una responsabilidad bien definida. v0.0.2 tien
 | **Process** | Augmenta notas crudas (frontmatter, body, triples, tags, wikilinks) |
 | **Output** | Genera derivados (digests, reportes, alertas) |
 | **Query** | API unificada de lectura (lexical + semántica + grafo) |
-| **Memory loop** | Integra con conversaciones de Claude Code (hooks, /remember, reglas) |
+| **Memory loop** | Integra con conversaciones de Claude Code (hooks, `/remember-<slug>`, reglas). **Opt-in.** |
 | **Q&A loop** | Pipeline de preguntas que solo el usuario puede contestar |
 
 Detalle por primitive: [`primitives/`](primitives/).
@@ -171,23 +171,23 @@ Librería versionada (`src/rufino/helpers/v1/`) que el framework expone a los ad
 
 Versionada con semver. El framework mantiene compatibilidad **2 versiones** simultáneas. Cuando un adapter usa una versión vieja, se carga con deprecation warning.
 
-## MCP server (`ask-rufino`)
+## MCP server (`ask-rufino-<slug>`)
 
 Servidor MCP (Model Context Protocol) sobre stdio. Lo lanza `rufino mcp-server --vault <X>`. Expone 6+ tools al Claude Code anfitrión para consultar el vault: `search_vault`, `read_note`, `traverse_relations`, etc.
 
-Se registra en `~/.claude.json` al cierre del bootstrap. Cualquier conversación de Claude Code en *cualquier* proyecto puede invocarlo.
+Se registra en `~/.claude.json` al cierre del bootstrap con un nombre **per-vault** (`ask-rufino-<slug>`, donde `<slug>` deriva del basename del vault). Varios vaults coexisten sin pisarse. Cualquier conversación de Claude Code en *cualquier* proyecto puede invocar cualquiera de ellos.
 
 Detalle: [`primitives/query.md`](primitives/query.md).
 
 ## Memory loop
 
-La integración entre las conversaciones de Claude Code y el vault. Tiene tres ramas:
+La integración entre las conversaciones de Claude Code y el vault. **Opcional** (opt-in: pasá `--install-hooks` al `rufino materialize` o respondé que sí en el wizard). Tiene tres ramas:
 
-1. **Hooks** (`UserPromptSubmit`, `Stop`, `SessionStart`) que se instalan en `~/.claude/hooks/` — cargan reglas, detectan momentos para guardar.
-2. **Skill `/remember`** — el mecanismo canónico de escritura al vault desde una conversación.
+1. **Hooks per-vault** (`UserPromptSubmit`, `Stop`, `SessionStart`) que se instalan en `~/.claude/hooks/rufino-memory-loop-{init,stop}-<slug>.sh` — cargan reglas, detectan momentos para guardar.
+2. **Skill `/remember-<slug>`** — el mecanismo canónico de escritura al vault desde una conversación. El slug deriva del basename del vault, así dos vaults conviven con `/remember-facultad` y `/remember-work`.
 3. **Reglas globales** — markdown en `~/.claude/rules/common/<vertical>-rules.md` que se cargan al iniciar cada sesión.
 
-El usuario nunca invoca esto a mano. Funciona transparente mientras conversa.
+Si el usuario lo activó, funciona transparente mientras conversa.
 
 Detalle: [`primitives/memory-loop.md`](primitives/memory-loop.md).
 

@@ -30,7 +30,7 @@ Lo que pasa adentro (siete pasos, ver `install.sh` comentado):
 4. Resuelve el bin dir de pipx (`pipx environment --value PIPX_BIN_DIR`)
 5. Si tu `$SHELL` es bash o zsh, agrega `export PATH="$BIN_DIR:$PATH"  # rufino-framework` a tu rc; idempotente (busca el marker comment)
 6. Crea `~/.rufino/{state,backups,adapters/{ingest,process,output,memory_loop}}/` y escribe `~/.rufino/version`
-7. Si exportaste `RUFINO_VAULT` apuntando a una carpeta existente y `jq` está instalado, registra `ask-rufino` en `~/.claude.json`. Si no, lo registra el wizard al cierre del bootstrap
+7. Si exportaste `RUFINO_VAULT` apuntando a una carpeta existente y `jq` está instalado, registra `ask-rufino-<slug>` (slug = basename del vault) en `~/.claude.json`. Si no, lo registra el wizard al cierre del bootstrap. Cada vault es su propia entry MCP — múltiples vaults coexisten sin pisarse.
 
 Al final imprime:
 
@@ -47,7 +47,7 @@ Verificá:
 
 ```bash
 which rufino       # → /Users/<vos>/.local/bin/rufino (o equivalente de pipx)
-rufino version     # → 0.0.2
+rufino version     # → 0.0.3
 ```
 
 ## Primer bootstrap
@@ -160,7 +160,7 @@ Después de un bootstrap exitoso, tu disco tiene:
 
 ```
 ~/.rufino/
-├── version                  # 0.0.2
+├── version                  # 0.0.3
 ├── applied-migrations       # vacío al principio
 ├── state/                   # cursores de Ingest, dedup, qa state
 ├── backups/                 # snapshots pre-upgrade
@@ -185,13 +185,15 @@ Después de un bootstrap exitoso, tu disco tiene:
 ```json
 {
   "mcpServers": {
-    "ask-rufino": {
+    "ask-rufino-<slug>": {
       "command": "/Users/<vos>/.local/bin/rufino",
       "args": ["mcp-server", "--vault", "/Users/<vos>/<vault>"]
     }
   }
 }
 ```
+
+`<slug>` es el basename del vault normalizado (lowercase, sin caracteres especiales). Si tenés dos vaults `~/facultad` y `~/work`, vas a ver dos entries: `ask-rufino-facultad` y `ask-rufino-work`.
 
 ### Si algo sale mal
 
@@ -243,7 +245,7 @@ Y preguntá:
 
 > *Qué me dijo el profe Méndez sobre cross-entropy en mi cursada?*
 
-Claude detecta que la pregunta es sobre tu vault, llama al MCP `ask-rufino`, busca, y te contesta con las menciones reales. Nunca abriste `~/facultad/`.
+Claude detecta que la pregunta es sobre tu vault, llama al MCP `ask-rufino-facultad`, busca, y te contesta con las menciones reales. Nunca abriste `~/facultad/`.
 
 ### Memory loop
 

@@ -7,4 +7,5 @@
 - [ ] Política de processing (qué pasa cuando llega algo nuevo)
 - [ ] Outputs definidos (qué resúmenes recibe)
 - [ ] Vocabulary del vertical (cómo se nombra cada cosa en el vault)
+- [ ] User decidió si activar captura de conversaciones de Claude Code (hooks opt-in)
 - [ ] User confirmó el sistema a armar

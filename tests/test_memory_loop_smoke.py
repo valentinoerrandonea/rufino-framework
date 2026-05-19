@@ -22,7 +22,7 @@ def test_installed_hooks_actually_execute(tmp_path: Path, tmp_vault: Path):
         log=tx_log,
     )
 
-    init_hook = claude_home / "hooks" / "rufino-memory-loop-init.sh"
+    init_hook = claude_home / "hooks" / "rufino-memory-loop-init-vault.sh"
     init_result = subprocess.run(
         ["bash", str(init_hook)], capture_output=True, text=True, check=True
     )
@@ -33,7 +33,7 @@ def test_installed_hooks_actually_execute(tmp_path: Path, tmp_vault: Path):
     assert "facultad" in init_result.stdout
     assert "Materia" in init_result.stdout
 
-    stop_hook = claude_home / "hooks" / "rufino-memory-loop-stop.sh"
+    stop_hook = claude_home / "hooks" / "rufino-memory-loop-stop-vault.sh"
     stop_result = subprocess.run(
         ["bash", str(stop_hook)], capture_output=True, text=True, check=True
     )
@@ -55,6 +55,6 @@ def test_rollback_after_install_leaves_no_trace(tmp_path: Path, tmp_vault: Path)
 
     tx_log.rollback()
 
-    assert not (claude_home / "hooks" / "rufino-memory-loop-init.sh").exists()
-    assert not (claude_home / "hooks" / "rufino-memory-loop-stop.sh").exists()
-    assert not (claude_home / "commands" / "remember.md").exists()
+    assert not (claude_home / "hooks" / "rufino-memory-loop-init-vault.sh").exists()
+    assert not (claude_home / "hooks" / "rufino-memory-loop-stop-vault.sh").exists()
+    assert not (claude_home / "commands" / "remember-vault.md").exists()

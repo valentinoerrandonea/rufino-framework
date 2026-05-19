@@ -332,11 +332,14 @@ Helpers para editar `~/.claude.json` de forma segura — concretamente para regi
 ```python
 from rufino.runtime.claude_config import register_mcp_server
 
+from rufino.runtime.vault_slug import compute_vault_slug
+
+vault = Path("/Users/beto/facultad")
 register_mcp_server(
     claude_config_path=Path.home() / ".claude.json",
-    server_name="ask-rufino",
+    server_name=f"ask-rufino-{compute_vault_slug(vault)}",  # one entry per vault
     command="/usr/local/bin/rufino",
-    args=["mcp-server", "--vault", "/Users/beto/facultad"],
+    args=["mcp-server", "--vault", str(vault)],
 )
 ```
 

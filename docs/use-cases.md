@@ -55,7 +55,7 @@ Verticales donde Rufino Framework aplica. Cada uno con qué adapters se material
 - Tirás un PDF a `inbox/` → en minutos aparece en `apuntes/<materia>/<fecha>-<slug>.md` con todo el frontmatter armado, links a apuntes previos sobre el mismo tema, y entry en `profesores/` si era profe nuevo.
 - Si el LLM no está seguro de qué materia es (porque las menciona ambiguas), te crea una Q&A en `questions/` y para. Vos editás `answer:` y el processing se reanuda.
 - El viernes a la noche recibís un email con el digest de la semana.
-- Si estás trabajando en otro proyecto y querés saber qué decía el profe sobre X, le preguntás a Claude desde ese proyecto (vía MCP `ask-rufino`).
+- Si estás trabajando en otro proyecto y querés saber qué decía el profe sobre X, le preguntás a Claude desde ese proyecto (vía MCP `ask-rufino-<slug>` — un entry por vault en `~/.claude.json`).
 
 ---
 
@@ -239,7 +239,7 @@ triples:
 | `output/digest-semanal` | Resumen del viernes |
 | `output/bio-mensual` | Bio del mes |
 | `output/year-review` | Retrospectiva del 30 de diciembre |
-| `memory_loop/personal` | El memory loop más rico — reglas + skill /remember + hooks |
+| `memory_loop/personal` | El memory loop más rico — reglas + skill `/remember-<slug>` + hooks (opt-in) |
 
 ### Vault resultante
 

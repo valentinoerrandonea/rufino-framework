@@ -82,7 +82,7 @@ expression: "type=apunte_clase AND created >= last_monday() AND tags contains 'm
 
 | Consumer | Cómo invoca |
 |---|---|
-| **MCP server `ask-rufino`** | Expone 6+ tools (`search_vault`, `read_note`, `traverse_relations`, `list_persons`, `list_concepts`, `vault_info`). Lanzado por Claude Code anfitrión. |
+| **MCP server `ask-rufino-<slug>`** | Expone 6+ tools (`search_vault`, `read_note`, `traverse_relations`, `list_persons`, `list_concepts`, `vault_info`). Lanzado por Claude Code anfitrión. Registrado per-vault: cada vault recibe su propio entry en `~/.claude.json`. |
 | **CLI `rufino query`** | Modo lexical operativo. `semantic`/`hybrid` exits 2 hasta que aterrice embedder. |
 | **Output adapters** | Via `query_vault()` helper. |
 | **Wizard inicial** | Para chequear si el vault ya tiene algo similar al adapter a generar. |

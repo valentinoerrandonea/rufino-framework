@@ -1,11 +1,11 @@
 # Memory loop
 
-Integración con conversaciones de Claude Code en curso. El usuario nunca invoca esto a mano — funciona transparente mientras conversa.
+Integración con conversaciones de Claude Code en curso. **Opcional** (opt-in vía `rufino materialize --install-hooks`); por defecto el framework no instala nada en `~/.claude/`. Si lo activás, funciona transparente mientras conversás.
 
 ## Tres ramas
 
-1. **Hooks** (`UserPromptSubmit`, `Stop`, `SessionStart`) instalados en `~/.claude/hooks/` — cargan reglas, detectan momentos para guardar.
-2. **Skill `/remember`** — el mecanismo canónico de escritura al vault desde una conversación. Decide carpeta destino según `note_type`.
+1. **Hooks per-vault** (`UserPromptSubmit`, `Stop`, `SessionStart`) instalados en `~/.claude/hooks/rufino-memory-loop-{init,stop}-<slug>.sh` — cargan reglas, detectan momentos para guardar. Cada vault tiene sus propios hooks; múltiples vaults coexisten.
+2. **Skill `/remember-<slug>`** — el mecanismo canónico de escritura al vault desde una conversación. Decide carpeta destino según `note_type`. El slug deriva del basename del vault, así dos vaults te dan `/remember-facultad` y `/remember-work` por separado.
 3. **Reglas globales** — markdown en `~/.claude/rules/common/<vertical>-*.md` que se cargan al iniciar cada sesión.
 
 ## Cuándo usar
@@ -138,7 +138,7 @@ rule_extensions:
 4. Claude (siguiendo las reglas):
        ├─→ detecta nueva mención de [[profesor-mendez]] (no existe)
        ├─→ detecta concepto regresion-bayesiana
-       ├─→ propone guardar via /remember
+       ├─→ propone guardar via /remember-<slug>
        │       ├─→ escribe apuntes/<materia>/<fecha>-clase-redes-bayesianas.md
        │       └─→ crea profesores/mendez.md con triple dicta → <materia>
        │
@@ -152,11 +152,13 @@ Las reglas de un memory loop adapter se cargan al iniciar **cada** sesión de Cl
 - Al próximo arranque de Claude Code, las reglas actualizadas se cargan (no requiere reinstall).
 - Si la modificación es **breaking** (cambia entity_types, etc.), reinstalar el adapter es lo limpio: `rufino install-memory-loop <adapter_dir> --vault X --claude-home Y` es idempotente.
 
-## Estado v0.0.2
+## Estado v0.0.3
 
 - ✅ Installer transaccional con rollback completo
 - ✅ Validador de manifest con path traversal protegido
-- ✅ Hook init + skill /remember + reglas en `~/.claude/rules/common/`
+- ✅ Hook init + skill `/remember-<slug>` + reglas en `~/.claude/rules/common/`
+- ✅ Naming per-vault — múltiples vaults coexisten en el mismo `~/.claude/`
+- ✅ Opt-in en el wizard — el framework no toca `~/.claude/hooks/` salvo que pidas `--install-hooks`
 - ⚠ Hook stop (al cierre) — esqueleto generado pero la integración con el resto del framework (preguntar al usuario qué guardar) depende del Process pipeline en modo full
 
 ## Referencia

@@ -7,11 +7,12 @@ from rufino.runtime.scheduler import ScheduledJob, pick_scheduler_for_os, Launch
 from rufino.runtime.secrets import InMemorySecretStore
 from rufino.runtime.transaction_log import TransactionLog, LogEntry, apply_and_log
 from rufino.runtime.validator_base import ValidationResult, ValidationError
+from rufino.version import VERSION
 
 
 def test_foundation_modules_compose(tmp_path: Path):
     # 1. Framework version + helper version reported
-    assert __version__ == "0.0.2"
+    assert __version__ == VERSION
     assert v1.HELPER_VERSION == "1.0.0"
 
     # 2. Scheduler renders a job (use Darwin path; doesn't actually install)

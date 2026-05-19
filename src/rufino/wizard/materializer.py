@@ -8,6 +8,7 @@ from rufino.engine.memory_loop.installer import (
     install_memory_loop,
 )
 from rufino.runtime.transaction_log import TransactionLog, apply_and_log
+from rufino.runtime.vault_slug import compute_vault_slug
 from rufino.wizard.spec_schema import WizardSpec
 
 
@@ -18,23 +19,25 @@ class MaterializationResult:
     errors: list[str] = field(default_factory=list)
 
 
-def _kebab(name: str) -> str:
-    return name.replace("_", "-").lower()
-
-
 def materialize(
     *,
     spec: WizardSpec,
     vault_root: Path,
     claude_home: Path,
     state_dir: Path,
+    install_hooks: bool = False,
 ) -> MaterializationResult:
-    """Big bang: create vault skeleton + install Memory loop adapter transactionally.
+    """Big bang: create vault skeleton + (optionally) install Memory loop adapter.
 
     Every disk-touching op is recorded in a TransactionLog and rolled back on
     failure. v1 wires only the Memory loop installer; Ingest/Process/Output
     installers are invoked separately via the per-primitive CLIs until they're
     folded into this orchestrator in a follow-up iteration.
+
+    `install_hooks` is opt-in (default False) because hooks intercept the
+    user's Claude Code conversations. The adapter manifest is still written
+    so the user can enable hooks later via `rufino install-memory-loop`
+    without re-running the wizard.
     """
     errors: list[str] = []
 
@@ -43,12 +46,21 @@ def materialize(
         errors.append(f"Entities without vocabulary entry: {missing_vocab}")
         return MaterializationResult(success=False, vault_path=vault_root, errors=errors)
 
+    # Compute slug up front: it's a pure function whose only failure is a
+    # bad vault path, which is a user-input error that shouldn't be wrapped
+    # in "Materialization failed:" rollback messaging.
+    try:
+        slug = compute_vault_slug(vault_root)
+    except ValueError as e:
+        errors.append(str(e))
+        return MaterializationResult(success=False, vault_path=vault_root, errors=errors)
+
     tx_log: TransactionLog | None = None
 
     try:
         state_dir_existed_before = state_dir.exists()
         state_dir.mkdir(parents=True, exist_ok=True)
-        tx_log = TransactionLog(state_dir / f"materialize-{spec.vertical_name}.json")
+        tx_log = TransactionLog(state_dir / f"materialize-{slug}.json")
         if not state_dir_existed_before:
             apply_and_log(
                 tx_log,
@@ -104,14 +116,14 @@ def materialize(
             rollback="delete",
         )
 
-        adapter_dir = state_dir.parent / "adapters" / "memory_loop" / spec.vertical_name
+        adapter_dir = state_dir.parent / "adapters" / "memory_loop" / slug
         apply_and_log(
             tx_log, op="mkdir", target=str(adapter_dir),
             apply_fn=lambda: adapter_dir.mkdir(parents=True),
             rollback="rmdir",
         )
         manifest = {
-            "adapter_name": f"memory-loop-{_kebab(spec.vertical_name)}",
+            "adapter_name": f"memory-loop-{slug}",
             "vertical_name": spec.vertical_name,
             "entity_types": list(spec.entities),
             "note_destinations": dict(spec.vocabulary),
@@ -125,15 +137,16 @@ def materialize(
             rollback="delete",
         )
 
-        try:
-            install_memory_loop(
-                adapter_dir=adapter_dir,
-                claude_home=claude_home,
-                vault_path=vault_root,
-                log=tx_log,
-            )
-        except InstallationError as e:
-            raise RuntimeError(f"Memory loop install failed: {e}") from e
+        if install_hooks:
+            try:
+                install_memory_loop(
+                    adapter_dir=adapter_dir,
+                    claude_home=claude_home,
+                    vault_path=vault_root,
+                    log=tx_log,
+                )
+            except InstallationError as e:
+                raise RuntimeError(f"Memory loop install failed: {e}") from e
 
         from rufino.wizard.post_bootstrap_docs import render_user_readme
         readme = vault_root / "README.md"
@@ -151,7 +164,7 @@ def materialize(
                 tx_log.rollback()
                 # Clean the now-empty log file so rmdir_if_empty handlers
                 # registered for parent dirs (e.g. state_dir) can succeed.
-                log_path = state_dir / f"materialize-{spec.vertical_name}.json"
+                log_path = state_dir / f"materialize-{slug}.json"
                 if log_path.exists():
                     log_path.unlink()
                 if not state_dir_existed_before and state_dir.exists() and not any(state_dir.iterdir()):

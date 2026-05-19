@@ -109,27 +109,34 @@ if command -v jq >/dev/null 2>&1; then
         if [ ! -f "$CLAUDE_JSON" ]; then
             echo "{}" > "$CLAUDE_JSON"
         fi
-        # Always write/update: if RUFINO_VAULT changed between runs, the
-        # registered args must follow.
-        CURRENT_VAULT="$(jq -r '.mcpServers["ask-rufino"].args[2] // ""' "$CLAUDE_JSON" 2>/dev/null || echo "")"
-        if [ "$CURRENT_VAULT" = "$RUFINO_VAULT" ]; then
-            echo "    MCP server already registered for $RUFINO_VAULT (skip)"
-            MCP_REGISTERED="already"
+        # Derive a per-vault MCP server name so multiple vaults can coexist
+        # in ~/.claude.json (mirrors rufino.runtime.vault_slug.compute_vault_slug).
+        VAULT_SLUG="$(basename "$RUFINO_VAULT" | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+        if [ -z "$VAULT_SLUG" ]; then
+            echo "    WARN: could not derive slug from $(basename "$RUFINO_VAULT") — skipping." >&2
         else
-            if [ -n "$CURRENT_VAULT" ]; then
-                echo "==> Updating MCP server vault: $CURRENT_VAULT → $RUFINO_VAULT"
+            SERVER_NAME="ask-rufino-${VAULT_SLUG}"
+            CURRENT_VAULT="$(jq -r --arg n "$SERVER_NAME" '.mcpServers[$n].args[2] // ""' "$CLAUDE_JSON" 2>/dev/null || echo "")"
+            if [ "$CURRENT_VAULT" = "$RUFINO_VAULT" ]; then
+                echo "    MCP server $SERVER_NAME already registered for $RUFINO_VAULT (skip)"
+                MCP_REGISTERED="already"
             else
-                echo "==> Registering MCP server ask-rufino in $CLAUDE_JSON"
+                if [ -n "$CURRENT_VAULT" ]; then
+                    echo "==> Updating MCP server $SERVER_NAME vault: $CURRENT_VAULT → $RUFINO_VAULT"
+                else
+                    echo "==> Registering MCP server $SERVER_NAME in $CLAUDE_JSON"
+                fi
+                TMP="$(mktemp)"
+                jq --arg cmd "$RUFINO_BIN" --arg vault "$RUFINO_VAULT" --arg name "$SERVER_NAME" \
+                   '.mcpServers = (.mcpServers // {}) |
+                    .mcpServers[$name] = {
+                        command: $cmd,
+                        args: ["mcp-server", "--vault", $vault]
+                    }' "$CLAUDE_JSON" > "$TMP"
+                mv "$TMP" "$CLAUDE_JSON"
+                MCP_REGISTERED="yes"
             fi
-            TMP="$(mktemp)"
-            jq --arg cmd "$RUFINO_BIN" --arg vault "$RUFINO_VAULT" \
-               '.mcpServers = (.mcpServers // {}) |
-                .mcpServers["ask-rufino"] = {
-                    command: $cmd,
-                    args: ["mcp-server", "--vault", $vault]
-                }' "$CLAUDE_JSON" > "$TMP"
-            mv "$TMP" "$CLAUDE_JSON"
-            MCP_REGISTERED="yes"
         fi
     else
         echo "    MCP server NOT registered — RUFINO_VAULT not set or not a directory." >&2

@@ -54,7 +54,11 @@ def version() -> None:
               help="Path to user's ~/.claude/ directory")
 def install_memory_loop_cmd(adapter_dir: Path, vault_path: Path, claude_home: Path) -> None:
     """Install a Memory loop adapter into ~/.claude/."""
-    tx_path = claude_home / "tx" / f"install-memory-loop-{adapter_dir.name}.json"
+    from rufino.runtime.vault_slug import compute_vault_slug
+    # Tx log path must be per-vault, not per-adapter-dir, so two distinct
+    # vaults installing from the same adapter dir don't share an audit log
+    # (a rollback would then destroy the unrelated install's records).
+    tx_path = claude_home / "tx" / f"install-memory-loop-{compute_vault_slug(vault_path)}.json"
     tx_path.parent.mkdir(parents=True, exist_ok=True)
     tx_log = TransactionLog(tx_path)
     try:
@@ -285,8 +289,12 @@ def bootstrap_cmd(dry_run: bool) -> None:
 @click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
 @click.option("--claude-home", "claude_home", required=True, type=click.Path(path_type=Path))
 @click.option("--state-dir", "state_dir", required=True, type=click.Path(path_type=Path))
+@click.option("--install-hooks/--no-install-hooks", default=False,
+              help="Install Claude Code hooks that capture conversations into "
+                   "this vault. Opt-in (default: off).")
 def materialize_cmd(
     spec_path: Path, vault_root: Path, claude_home: Path, state_dir: Path,
+    install_hooks: bool,
 ) -> None:
     """Materialize the system described in a WizardSpec JSON file."""
     raw = json.loads(spec_path.read_text(encoding="utf-8"))
@@ -301,6 +309,7 @@ def materialize_cmd(
         vault_root=vault_root.expanduser().resolve(),
         claude_home=claude_home.expanduser().resolve(),
         state_dir=state_dir.expanduser().resolve(),
+        install_hooks=install_hooks,
     )
 
     if not result.success:
@@ -308,20 +317,23 @@ def materialize_cmd(
             click.echo(f"ERROR: {err}", err=True)
         raise click.exceptions.Exit(code=2)
 
-    # Register the ask-rufino MCP server in ~/.claude.json so Claude Code can
-    # query the freshly materialized vault. Uses sys.argv[0] (the rufino CLI
-    # that's currently running) so the command stays correct under pipx/venv.
+    # Register a per-vault MCP server in ~/.claude.json so Claude Code can
+    # query the freshly materialized vault without clobbering other vaults'
+    # entries. Uses sys.argv[0] (the rufino CLI that's currently running) so
+    # the command stays correct under pipx/venv.
     import sys
     from rufino.runtime.claude_config import register_mcp_server
+    from rufino.runtime.vault_slug import compute_vault_slug
+    server_name = f"ask-rufino-{compute_vault_slug(result.vault_path)}"
     claude_config = Path.home() / ".claude.json"
     register_mcp_server(
         claude_config_path=claude_config,
-        server_name="ask-rufino",
+        server_name=server_name,
         command=sys.argv[0] if sys.argv and sys.argv[0] else "rufino",
         args=["mcp-server", "--vault", str(result.vault_path)],
     )
     click.echo(f"Vault materialized at {result.vault_path}")
-    click.echo(f"Registered ask-rufino MCP at {claude_config}")
+    click.echo(f"Registered {server_name} MCP at {claude_config}")
 
 
 @cli.command(name="process-batch")

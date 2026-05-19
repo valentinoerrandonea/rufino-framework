@@ -161,10 +161,11 @@ ls ~/.rufino/state/tx/              # logs de materialize (si los hay)
 
 ### MCP no aparece en Claude Code después del wizard
 
-Verificá:
+Verificá (sustituyendo `<slug>` por el basename de tu vault, normalizado a lowercase/kebab):
 
 ```bash
-jq '.mcpServers["ask-rufino"]' ~/.claude.json
+jq '.mcpServers' ~/.claude.json   # lista todos los servers; buscá ask-rufino-*
+jq '.mcpServers["ask-rufino-<slug>"]' ~/.claude.json
 ```
 
 Debería responder con `{"command": "...", "args": ["mcp-server", "--vault", "..."]}`.
@@ -174,13 +175,16 @@ Si no aparece, el wizard no llegó a registrarlo. Causas posibles:
 - `jq` no estaba instalado al momento de materializar (instalá y volvé a correr `rufino materialize` con el spec que el wizard generó — debería estar en `/tmp/`).
 - El proceso terminó abruptamente.
 
-Para registrarlo a mano:
+Para registrarlo a mano (slug derivado del basename del vault):
 
 ```bash
-jq --arg vault "$VAULT" '.mcpServers["ask-rufino"] = {
-  command: "rufino",
-  args: ["mcp-server", "--vault", $vault]
-}' ~/.claude.json > /tmp/c.json && mv /tmp/c.json ~/.claude.json
+VAULT=/path/to/your/vault
+SLUG=$(basename "$VAULT" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
+jq --arg vault "$VAULT" --arg name "ask-rufino-$SLUG" \
+   '.mcpServers[$name] = {
+     command: "rufino",
+     args: ["mcp-server", "--vault", $vault]
+   }' ~/.claude.json > /tmp/c.json && mv /tmp/c.json ~/.claude.json
 ```
 
 Después abrí una sesión nueva de Claude Code — el MCP se carga al startup.
@@ -297,7 +301,7 @@ ls ~/.rufino/backups/
 
 ## Performance
 
-### El MCP `ask-rufino` arranca lento
+### El MCP `ask-rufino-<slug>` arranca lento
 
 Por default rebuildea índices semantic+graph al startup. En vaults grandes esto puede tomar 30s-2min. Opciones:
 

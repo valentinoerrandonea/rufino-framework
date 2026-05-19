@@ -31,7 +31,7 @@ Lectura más larga sobre la filosofía y el paradigma A2P que la sustenta: [`doc
     Big bang: materializa vault + adapters + MCP server + memory loop
         (transaccional — o sale todo, o nada)
 3.  Listo: tirá notas al vault, conversá con Claude en cualquier proyecto,
-    recibí los digests, consultá el vault desde el MCP `ask-rufino`.
+    recibí los digests, consultá el vault desde el MCP `ask-rufino-<slug>`.
 ```
 
 ---
@@ -46,8 +46,8 @@ Lectura más larga sobre la filosofía y el paradigma A2P que la sustenta: [`doc
   - **Memory loop** — guardar al vault lo que conversás con Claude Code
   - **Q&A loop** — preguntas que solo vos podés resolver (materia ambigua, persona nueva)
   - **Query** — API unificada de lectura (lexical + semántico + grafo)
-- Un **MCP server `ask-rufino`** registrado en tu Claude Code, para consultarle al vault desde cualquier conversación.
-- Hooks + reglas + skills instaladas en `~/.claude/` para que la memoria del vault se cargue automáticamente.
+- Un **MCP server `ask-rufino-<slug>`** (uno por vault) registrado en tu Claude Code, para consultarle al vault desde cualquier conversación. Varios vaults coexisten sin pisarse.
+- **Opcional** (opt-in en el wizard): hooks + skill `/remember-<slug>` en `~/.claude/` para que el framework capture y analice tus conversaciones de Claude Code y guarde lo valioso al vault automáticamente.
 
 ---
 
@@ -91,7 +91,7 @@ El instalador:
 2. Instala el package en un venv aislado con `pipx install -e .` (PEP 668 safe)
 3. Resuelve el bin dir de pipx y agrega `# rufino-framework` a tu shell rc si falta
 4. Crea `~/.rufino/` con la estructura base (`state/`, `backups/`, `adapters/{ingest,process,output,memory_loop}/`)
-5. Registra el MCP server `ask-rufino` en `~/.claude.json` *si* exportaste `RUFINO_VAULT` apuntando a una carpeta existente; si no, el wizard lo registra al cierre del bootstrap
+5. Registra el MCP server `ask-rufino-<slug>` (slug = basename del vault) en `~/.claude.json` *si* exportaste `RUFINO_VAULT` apuntando a una carpeta existente; si no, el wizard lo registra al cierre del bootstrap
 
 Al terminar imprime:
 
@@ -140,7 +140,7 @@ Para ver flags completos: `rufino <cmd> --help`. Referencia detallada: [`docs/cl
 | `rufino output <adapter_dir> --vault X` | Corre un Output adapter una vez |
 | `rufino qa-poll --vault X --state-dir Y` | Procesa respuestas pendientes en `questions/` |
 | `rufino query "..." --vault X --mode {lexical\|semantic\|hybrid}` | Busca en el vault. `semantic`/`hybrid` requieren embedder real (deferido) |
-| `rufino mcp-server --vault X [--no-rebuild]` | Levanta el MCP server `ask-rufino` por stdio |
+| `rufino mcp-server --vault X [--no-rebuild]` | Levanta el MCP server (registrado como `ask-rufino-<slug>` por vault) por stdio |
 
 ---
 

@@ -47,15 +47,17 @@ Patterns son combinables — un vertical real puede usar 2-3 mezclados.
 
 ## 8. Output esperado
 Cuando todos los objetivos estén cubiertos + user confirme, invocá
-`rufino materialize <spec.json>` con la spec completa del sistema a armar.
+`rufino materialize --spec <spec.json> --vault <vault_path> --claude-home <claude_home> --state-dir <state_dir>` con la spec
+completa del sistema a armar. Pasá también `--install-hooks` o
+`--no-install-hooks` según lo que el user haya respondido (regla operativa 8).
 La spec sigue el schema WizardSpec (campos: vertical_name, patterns,
 entities, sources, processing, outputs, vocabulary).
 
 ## 9. Features distintivas — comunicar siempre en el big bang
-- Memory loop ("voy guardando lo valioso al vault sin que te acuerdes")
+- MCP server ("le preguntás al vault desde cualquier conversación con Claude") — siempre activo, uno por vault (`ask-rufino-<slug>`)
 - Augmentation ("cuando guardás algo crudo, lo organiza y enriquece")
 - Triples / grafo tipado ("las notas se conectan entre sí")
-- MCP server ("le preguntás al vault desde cualquier conversación con Claude")
+- Memory loop **opcional** ("si querés, además puedo capturar y analizar tus conversaciones de Claude Code para guardar lo valioso al vault automáticamente") — opt-in, default off, configurable después
 
 ## 10. Features opcionales — activar según vertical
 - Concept promotion (útil: knowledge graph, facultad)
@@ -66,8 +68,9 @@ entities, sources, processing, outputs, vocabulary).
 ## 11. Big bang — presentación al user
 Resumen en lenguaje user con secciones: vault, fuentes, processing,
 memory loop, query, MCP, outputs.
+Antes de la pregunta de cierre, preguntá por hooks (regla operativa 8) si todavía no lo hiciste.
 Pregunta de cierre: "¿Dale así, o algo no encaja?"
-Si confirma -> invocar materializer -> dry-run -> resultado.
+Si confirma -> invocar materializer (con `--install-hooks` o `--no-install-hooks` según corresponda) -> resultado.
 """
 
 

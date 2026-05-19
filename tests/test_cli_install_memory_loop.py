@@ -22,7 +22,7 @@ def test_install_memory_loop_cli(tmp_path: Path, tmp_vault: Path):
     )
 
     assert result.exit_code == 0, result.output
-    assert (claude_home / "hooks" / "rufino-memory-loop-init.sh").exists()
+    assert (claude_home / "hooks" / "rufino-memory-loop-init-vault.sh").exists()
     assert "installed" in result.output.lower()
 
 
@@ -75,4 +75,34 @@ def test_install_memory_loop_cli_rolls_back_on_mid_install_failure(
     )
 
     assert result.exit_code != 0
-    assert not (claude_home / "hooks" / "rufino-memory-loop-init.sh").exists()
+    assert not (claude_home / "hooks" / "rufino-memory-loop-init-vault.sh").exists()
+
+
+def test_install_memory_loop_cli_tx_log_keyed_by_vault_slug(tmp_path: Path):
+    """Two installs from the same adapter_dir into different vaults must NOT
+    share the tx log path — otherwise a rollback of the second install would
+    destroy the audit trail of the first."""
+    from rufino.runtime.vault_slug import compute_vault_slug
+
+    claude_home = tmp_path / ".claude"
+    claude_home.mkdir()
+    vault_a = tmp_path / "vault-a"
+    vault_a.mkdir()
+    vault_b = tmp_path / "vault-b"
+    vault_b.mkdir()
+    runner = CliRunner()
+
+    for vault in (vault_a, vault_b):
+        result = runner.invoke(
+            cli,
+            [
+                "install-memory-loop", str(FIXTURE),
+                "--vault", str(vault),
+                "--claude-home", str(claude_home),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+    tx_dir = claude_home / "tx"
+    assert (tx_dir / f"install-memory-loop-{compute_vault_slug(vault_a)}.json").exists()
+    assert (tx_dir / f"install-memory-loop-{compute_vault_slug(vault_b)}.json").exists()

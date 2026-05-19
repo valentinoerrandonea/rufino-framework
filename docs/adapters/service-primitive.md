@@ -24,7 +24,7 @@ Forzar un manifest declarativo de la API sería ceremonia sin valor: ¿qué conf
 | Consumer | Cómo invoca |
 |---|---|
 | **CLI `rufino query`** | Modo lexical operativo. Semantic/hybrid exits 2 hasta embedder real. |
-| **MCP server `ask-rufino`** | Expone 6+ tools que llaman a la API. |
+| **MCP server `ask-rufino-<slug>`** | Expone 6+ tools que llaman a la API. Per-vault (un entry por vault en `~/.claude.json`). |
 | **Output adapters** | Vía `query_vault()` helper. |
 | **Wizard** | Para chequear vault state al inicio del bootstrap. |
 
