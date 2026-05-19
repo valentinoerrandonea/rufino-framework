@@ -12,6 +12,20 @@ from rufino.engine.process.batch.runner import (
 )
 
 
+def _make_minimal_setup(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """Smallest viable batch input: a vault dir, an adapter, and a 1-note corpus.
+
+    Returns ``(vault, adapter, source)``.
+    """
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    adapter = _make_adapter(tmp_path)
+    source = tmp_path / "corpus"
+    source.mkdir()
+    (source / "n1.md").write_text("# n1\n", encoding="utf-8")
+    return vault, adapter, source
+
+
 FAKE_DIR = Path(__file__).parent / "fixtures" / "fake_claude"
 
 
@@ -167,3 +181,46 @@ def test_pending_qa_written_to_vault(tmp_path, monkeypatch):
     assert result.notes_pending_qa >= 1
     questions = list((vault / "questions").glob("*.md"))
     assert questions, "no question file written to vault/questions/"
+
+
+def test_runner_empty_worker_output_counts_as_failure(tmp_path, monkeypatch):
+    """Codex C2: FAKE_CLAUDE_MODE=empty must produce notes_failed == notes_total."""
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "empty")
+    vault, adapter, source = _make_minimal_setup(tmp_path)
+
+    result = asyncio.run(run_batch(
+        source=source, adapter_dir=adapter, vault_root=vault,
+        workers=1, batch_size=1, dry_run=False,
+        skip_consolidator=True, timeout_seconds=10.0,
+    ))
+
+    assert result.notes_total == 1
+    assert result.notes_ok == 0
+    assert result.notes_failed == 1
+
+
+def test_runner_worker_timeout_counts_as_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "hang")
+    vault, adapter, source = _make_minimal_setup(tmp_path)
+
+    result = asyncio.run(run_batch(
+        source=source, adapter_dir=adapter, vault_root=vault,
+        workers=1, batch_size=1, dry_run=False,
+        skip_consolidator=True, timeout_seconds=0.5,
+    ))
+
+    assert result.notes_failed == 1
+    assert result.notes_ok == 0
+
+
+def test_runner_worker_nonzero_exit_counts_as_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "fail")
+    vault, adapter, source = _make_minimal_setup(tmp_path)
+
+    result = asyncio.run(run_batch(
+        source=source, adapter_dir=adapter, vault_root=vault,
+        workers=1, batch_size=1, dry_run=False,
+        skip_consolidator=True, timeout_seconds=10.0,
+    ))
+
+    assert result.notes_failed == 1

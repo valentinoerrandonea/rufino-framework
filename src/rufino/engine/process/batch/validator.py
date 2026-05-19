@@ -1,8 +1,11 @@
 """Post-hoc validation of worker outputs against the adapter manifest."""
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rufino.engine.process.helpers.frontmatter import (
     FrontmatterError,
@@ -15,6 +18,9 @@ from rufino.engine.process.helpers.triples import (
     validate_triples_against_vocab,
 )
 from rufino.engine.process.manifest import WorkerAdapterManifest
+
+if TYPE_CHECKING:  # pragma: no cover — type-checker only
+    from rufino.engine.process.batch.planner import WorkerAssignment
 
 
 log = logging.getLogger(__name__)
@@ -97,19 +103,56 @@ def validate_one(
 def validate_worker_output(
     staging_dir: Path,
     manifest: WorkerAdapterManifest,
+    *,
+    assignment: "WorkerAssignment | None" = None,
 ) -> ValidationReport:
+    """Validate worker output against the manifest.
+
+    When ``assignment`` is provided, the validator is assignment-aware: every
+    note in ``assignment.notes`` must produce exactly one terminal artifact —
+    a valid augmented file (+ delta), a pending Q&A entry, or a synthesized
+    failure. A worker that produced no output (empty/timeout/nonzero exit)
+    is no longer silently dropped; each unaccounted note becomes a failure.
+
+    Without an assignment, falls back to the legacy "enumerate augmented/"
+    behavior for backward compatibility with callers that don't have an
+    assignment in hand (e.g. retry helpers, ad-hoc tests).
+    """
     aug_dir = staging_dir / "augmented"
+    pending_dir = staging_dir / "pending"
     delta_dir = staging_dir / "deltas"
     passed: list[NoteValidation] = []
     failed: list[NoteValidation] = []
-    if not aug_dir.exists():
-        log.info(
-            "no augmented/ in %s; treating as pending-only or empty worker output",
-            staging_dir,
-        )
-        return ValidationReport()
-    for aug_path in sorted(aug_dir.glob("*.md")):
-        delta_path = delta_dir / f"{aug_path.stem}.json"
-        result = validate_one(aug_path, delta_path, manifest)
-        (passed if result.passed else failed).append(result)
+
+    if assignment is None:
+        if not aug_dir.exists():
+            log.info(
+                "no augmented/ in %s; treating as pending-only or empty worker output",
+                staging_dir,
+            )
+            return ValidationReport()
+        for aug_path in sorted(aug_dir.glob("*.md")):
+            delta_path = delta_dir / f"{aug_path.stem}.json"
+            result = validate_one(aug_path, delta_path, manifest)
+            (passed if result.passed else failed).append(result)
+        return ValidationReport(passed=tuple(passed), failed=tuple(failed))
+
+    for note_path in assignment.notes:
+        slug = note_path.stem
+        aug_path = aug_dir / f"{slug}.md"
+        delta_path = delta_dir / f"{slug}.json"
+        pending_path = pending_dir / f"{slug}.json"
+        if aug_path.exists():
+            result = validate_one(aug_path, delta_path, manifest)
+            (passed if result.passed else failed).append(result)
+        elif pending_path.exists():
+            # Pending Q&A is a valid non-failure terminal state; do not list.
+            continue
+        else:
+            failed.append(NoteValidation(
+                slug=slug,
+                augmented_path=aug_path,
+                delta_path=None,
+                errors=(f"worker produced no output for slug={slug!r}",),
+            ))
     return ValidationReport(passed=tuple(passed), failed=tuple(failed))

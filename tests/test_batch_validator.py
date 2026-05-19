@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from rufino.engine.process.batch.planner import WorkerAssignment
 from rufino.engine.process.batch.validator import (
     NoteValidation,
     ValidationReport,
@@ -178,3 +179,21 @@ def test_validator_propagates_unexpected_bug(tmp_path):
 
     with pytest.raises(AttributeError):
         validate_one(aug, delta, BrokenManifest())
+
+
+def test_validator_synthesizes_failure_for_missing_augmented(tmp_path):
+    """Every assignment note that produces neither augmented nor pending is a failure."""
+    manifest = parse_worker_manifest(_MANIFEST)
+    staging = tmp_path / "workers" / "w001"
+    staging.mkdir(parents=True)
+    # Worker wrote nothing — no augmented/, no pending/
+
+    assignment = WorkerAssignment(
+        worker_id="w001", group="root",
+        notes=(tmp_path / "inbox" / "root" / "n1.md",),
+    )
+    report = validate_worker_output(staging, manifest, assignment=assignment)
+
+    assert len(report.failed) == 1
+    assert report.failed[0].slug == "n1"
+    assert any("no output" in e for e in report.failed[0].errors)

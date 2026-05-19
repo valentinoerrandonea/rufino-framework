@@ -228,7 +228,7 @@ async def run_batch(
     all_failed: list[NoteValidation] = []
     for assignment in plan.workers:
         staging_dir = run_dir / "workers" / assignment.worker_id
-        report = validate_worker_output(staging_dir, manifest)
+        report = validate_worker_output(staging_dir, manifest, assignment=assignment)
         if report.failed:
             retry_report = await retry_failed(
                 failed=report.failed, manifest=manifest,
