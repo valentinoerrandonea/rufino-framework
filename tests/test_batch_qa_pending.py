@@ -100,15 +100,19 @@ def test_write_questions_yaml_handles_special_chars_in_context(tmp_path):
     assert parsed["context"] == "line1: weird #stuff\nline2 'quotes'"
 
 
-def test_write_questions_rejects_traversal_in_pending_note(tmp_path):
+def test_write_questions_rejects_traversal_in_pending_note(tmp_path, caplog):
     vault = tmp_path / "vault"
     pendings = [PendingQA(
         origin="process-batch", run_id="r1", worker_id="w001",
         pending_note="../escape", input_path="inbox/g/x.md",
         trigger="t", context="c", question="?",
     )]
-    with pytest.raises(InvalidPendingSlugError):
-        write_questions_to_vault(pendings, vault)
+    with caplog.at_level(logging.WARNING, logger="rufino.engine.process.batch.qa_pending"):
+        result = write_questions_to_vault(pendings, vault)
+    # Per-item degrade: bad slug logs + appends to failed[], doesn't abort.
+    assert result.written == ()
+    assert len(result.failed) == 1
+    assert any("escape" in r.message for r in caplog.records)
 
 
 def test_write_questions_skips_existing_with_filled_answer(tmp_path, caplog):
@@ -149,3 +153,109 @@ def test_write_questions_overwrites_existing_with_empty_answer(tmp_path):
     result = write_questions_to_vault(pendings, vault)
     assert len(result.written) == 1
     assert "new ctx" in existing.read_text()
+
+
+def _pq(**overrides) -> PendingQA:
+    """Build a PendingQA with sensible defaults, override as needed."""
+    base = dict(
+        origin="process-batch",
+        run_id="r1",
+        worker_id="w001",
+        pending_note="n1",
+        input_path="inbox/g/n1.md",
+        trigger="t",
+        context="c",
+        question="?",
+    )
+    base.update(overrides)
+    return PendingQA(**base)
+
+
+def test_write_questions_continues_after_invalid_slug(tmp_path):
+    """H1: a single bad slug must not abort the whole batch."""
+    vault = tmp_path / "vault"
+    pending = [
+        _pq(pending_note="bad/../escape"),
+        _pq(pending_note="good"),
+    ]
+    result = write_questions_to_vault(pending, vault)
+
+    assert (vault / "questions" / "r1-w001-good.md").exists()
+    assert len(result.failed) == 1
+    assert "escape" in str(result.failed[0])
+    assert len(result.written) == 1
+
+
+def test_existing_answer_filled_does_not_crash_on_bad_frontmatter(tmp_path):
+    """H2: corrupted YAML in an existing question file is treated as not-filled."""
+    vault = tmp_path / "vault"
+    qdir = vault / "questions"
+    qdir.mkdir(parents=True)
+    existing = qdir / "r1-w001-x.md"
+    existing.write_text("---\nfoo: : :\n---\nanswer: stuff\n", encoding="utf-8")
+
+    pendings = [_pq(pending_note="x")]
+    # Must not raise; bad YAML => treat as not-filled => overwrite is allowed.
+    result = write_questions_to_vault(pendings, vault)
+    assert len(result.written) == 1
+
+
+def test_answer_detection_uses_frontmatter_not_body_substring(tmp_path):
+    """M1: a question whose body contains a line starting with 'answer:' is not filled.
+
+    The frontmatter `answer` field is empty; the body merely *mentions* answer
+    on a line that starts with the substring. Body-substring detection would
+    incorrectly mark this as filled; frontmatter detection sees the empty
+    answer and lets us overwrite.
+    """
+    vault = tmp_path / "vault"
+    qdir = vault / "questions"
+    qdir.mkdir(parents=True)
+    existing = qdir / "r1-w001-x.md"
+    existing.write_text(
+        "---\norigin: process-batch\npending_note: x\nanswer: \n---\n"
+        "# Question\n\nanswer: this-is-quoted-text-in-the-body-not-an-answer\n",
+        encoding="utf-8",
+    )
+
+    pendings = [_pq(pending_note="x")]
+    result = write_questions_to_vault(pendings, vault)
+    # Body line starts with "answer:" but frontmatter['answer'] is empty.
+    # Frontmatter-based detection should overwrite.
+    assert result.skipped == ()
+    assert len(result.written) == 1
+
+
+def test_collect_pending_rejects_non_string_pending_note(tmp_path, caplog):
+    """M6: an LLM emitting a numeric pending_note is rejected cleanly."""
+    workers = tmp_path / "workers" / "w001" / "pending"
+    workers.mkdir(parents=True)
+    (workers / "x.json").write_text(json.dumps({
+        "origin": "process-batch", "run_id": "r1", "worker_id": "w001",
+        "pending_note": 42, "input_path": "inbox/g/x.md",
+        "trigger": "t", "context": "c", "question": "?",
+    }), encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="rufino.engine.process.batch.qa_pending"):
+        result = collect_pending(tmp_path)
+    assert result == []  # rejected silently; no TypeError
+    assert any("pending_note" in r.message for r in caplog.records)
+
+
+def test_question_writes_are_atomic(tmp_path, monkeypatch):
+    """M2: writes go through tmp + replace, not direct write_text."""
+    vault = tmp_path / "vault"
+    (vault / "questions").mkdir(parents=True)
+    captured: list[Path] = []
+    orig_replace = Path.replace
+
+    def spy_replace(self, target):
+        captured.append(Path(target))
+        return orig_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", spy_replace)
+    pendings = [_pq(pending_note="x")]
+    write_questions_to_vault(pendings, vault)
+    # At least one atomic replace happened, targeting the question file.
+    assert captured
+    assert any(p.name == "r1-w001-x.md" for p in captured)

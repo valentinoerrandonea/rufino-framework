@@ -14,7 +14,7 @@ from pathlib import Path
 import yaml
 
 from rufino.engine.process.batch.errors import BatchError
-from rufino.engine.process.helpers.frontmatter import parse_frontmatter
+from rufino.engine.process.helpers.frontmatter import FrontmatterError, parse_frontmatter
 
 
 log = logging.getLogger(__name__)
@@ -67,6 +67,12 @@ def collect_pending(run_dir: Path) -> list[PendingQA]:
             except json.JSONDecodeError as e:
                 log.warning("dropping malformed pending json at %s: %s", p, e)
                 continue
+            if not isinstance(data, dict):
+                log.warning("dropping %s: payload must be a JSON object", p)
+                continue
+            if not isinstance(data.get("pending_note"), str):
+                log.warning("dropping %s: pending_note must be a string", p)
+                continue
             try:
                 out.append(PendingQA(
                     origin=data["origin"], run_id=data["run_id"],
@@ -87,11 +93,32 @@ def _existing_answer_filled(question_path: Path) -> bool:
         text = question_path.read_text(encoding="utf-8")
     except OSError:
         return False
-    _fm, body = parse_frontmatter(text)
+    try:
+        fm, body = parse_frontmatter(text)
+    except FrontmatterError as e:
+        log.warning(
+            "treating %s as not-filled: corrupt frontmatter (%s)",
+            question_path, e,
+        )
+        return False
+    if "answer" in fm:
+        answer = fm["answer"]
+        if answer is None:
+            # YAML `answer:` with no value parses as None — treat as empty.
+            return False
+        if not isinstance(answer, str):
+            # Non-string answer (dict, list, int) means the user has
+            # clearly populated the field; do not clobber.
+            return True
+        return bool(answer.strip())
+    # Backward-compat: pre-v0.1.0 question files put the answer field at
+    # the start of a body line ("answer: <text>") rather than in
+    # frontmatter. Scan only the first body line that starts with
+    # "answer:" so a question text that mentions the substring elsewhere
+    # is not treated as filled.
     for line in body.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("answer:"):
-            return bool(stripped[len("answer:"):].strip())
+        if line.startswith("answer:"):
+            return bool(line[len("answer:"):].strip())
     return False
 
 
@@ -104,9 +131,25 @@ def write_questions_to_vault(
     skipped: list[Path] = []
     failed: list[Path] = []
     for pending in pendings:
-        _validate_slug(pending.run_id, "run_id")
-        _validate_slug(pending.worker_id, "worker_id")
-        _validate_slug(pending.pending_note, "pending_note")
+        try:
+            _validate_slug(pending.run_id, "run_id")
+            _validate_slug(pending.worker_id, "worker_id")
+            _validate_slug(pending.pending_note, "pending_note")
+        except InvalidPendingSlugError as e:
+            log.warning(
+                "skipping pending %s/%s/%s: %s",
+                pending.run_id, pending.worker_id, pending.pending_note, e,
+            )
+            # Synthesize a marker for the failed[] tuple so callers can see
+            # which slug was rejected. Sanitize the raw value into the
+            # filename so an attempted traversal cannot escape
+            # questions_dir even in the report path (defense in depth —
+            # these paths are not written to disk, but callers may iterate
+            # them).
+            raw = str(pending.pending_note)
+            sanitized = "".join(c if c.isalnum() or c in "._-" else "_" for c in raw)
+            failed.append(questions_dir / f"{sanitized or 'unknown'}.invalid")
+            continue
         qid = f"{pending.run_id}-{pending.worker_id}-{pending.pending_note}"
         path = questions_dir / f"{qid}.md"
         if _existing_answer_filled(path):
@@ -124,17 +167,25 @@ def write_questions_to_vault(
             "input_path": pending.input_path,
             "trigger": pending.trigger,
             "context": pending.context,
+            "answer": "",
         }
         fm_yaml = yaml.safe_dump(fm, default_flow_style=False, sort_keys=False)
         body = (
             f"---\n{fm_yaml}---\n\n"
-            f"# {pending.question}\n\n"
-            "answer: \n"
+            f"# {pending.question}\n"
         )
+        tmp = path.with_suffix(path.suffix + ".tmp")
         try:
-            path.write_text(body, encoding="utf-8")
+            tmp.write_text(body, encoding="utf-8")
+            tmp.replace(path)
         except OSError as e:
             log.error("failed to write question file %s: %s", path, e)
+            # Best-effort cleanup of the partial tmp file.
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
             failed.append(path)
             continue
         written.append(path)
