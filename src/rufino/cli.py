@@ -85,10 +85,61 @@ def process_cmd(note_path: Path, vault_root: Path, mode: str, adapter_dir: Path 
         click.echo("Error: --adapter-dir required for --mode full", err=True)
         raise click.exceptions.Exit(code=1)
     if mode == "full":
-        click.echo("Error: full mode CLI wiring lands in plan 7 (needs real LLM + Query)", err=True)
-        raise click.exceptions.Exit(code=2)
+        _process_single_full(note_path=note_path, vault_root=vault_root,
+                             adapter_dir=adapter_dir)
+        return
     result = _process_note(note_path=note_path, vault_root=vault_root, mode=mode)
     click.echo(f"{result.message}")
+
+
+def _process_single_full(
+    *, note_path: Path, vault_root: Path, adapter_dir: Path,
+) -> None:
+    """Run ``--mode full`` on a single note by delegating to ``run_batch``
+    over a tempdir-of-one. Exit codes mirror the batch outcomes:
+      0  — note committed
+      1  — failure (staging preserved under ``<vault>/.rufino/runs/<run_id>``)
+      3  — Q&A pending (check ``<vault>/questions/``)
+    127  — ``claude`` binary missing on PATH.
+    """
+    import shutil
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="rufino-process-full-") as tmp:
+        staging = Path(tmp)
+        shutil.copy2(note_path, staging / note_path.name)
+        try:
+            result = asyncio.run(run_batch(
+                source=staging, adapter_dir=adapter_dir,
+                vault_root=vault_root,
+                workers=1, batch_size=1, dry_run=False,
+            ))
+        except WorkerSessionExpiredError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise click.exceptions.Exit(code=1)
+        except BatchError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise click.exceptions.Exit(code=1)
+        except FileNotFoundError as e:
+            if getattr(e, "filename", None) == "claude":
+                click.echo("Error: `claude` no encontrado en PATH.", err=True)
+                raise click.exceptions.Exit(code=127)
+            raise
+
+    if result.notes_pending_qa > 0:
+        click.echo(
+            f"Q&A pending for {note_path.name} (run_id={result.run_id}); "
+            f"check vault questions/",
+        )
+        raise click.exceptions.Exit(code=3)
+    if result.notes_failed > 0:
+        click.echo(
+            f"Error: full-mode processing failed for {note_path.name} "
+            f"(run_id={result.run_id}); staging preserved",
+            err=True,
+        )
+        raise click.exceptions.Exit(code=1)
+    click.echo(f"processed {note_path.name}: ok (run_id={result.run_id})")
 
 
 @cli.command(name="ingest")
