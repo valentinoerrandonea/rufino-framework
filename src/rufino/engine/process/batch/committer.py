@@ -52,17 +52,21 @@ def _undo_move(target: str) -> None:
 
 def _undo_move_overwrite(target: str) -> None:
     """Restore dest from snap, then move dest back to src. Target format:
-    ``"<dest>\\x00<src>\\x00<snap>"``."""
+    ``"<dest>\\x00<src>\\x00<snap>"``.
+
+    Snap-only fallback only runs when ``src`` does not already hold content —
+    otherwise we would silently clobber whatever lives at src.
+    """
     parts = target.split(_NUL)
     if len(parts) != 3:
         return
     dest, src, snap = parts
-    # First, move the new content back to staging (undo of the move)
-    if Path(dest).exists() and Path(snap).exists():
-        Path(src).parent.mkdir(parents=True, exist_ok=True)
+    dest_p, src_p, snap_p = Path(dest), Path(src), Path(snap)
+    if dest_p.exists() and snap_p.exists():
+        src_p.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(dest, src)
         shutil.copy2(snap, dest)
-    elif Path(snap).exists():
+    elif snap_p.exists() and not src_p.exists():
         shutil.copy2(snap, dest)
 
 
@@ -115,12 +119,17 @@ def commit(
 ) -> None:
     """Apply plan via tx_log. On any failure, rollback restores state and the
     exception propagates."""
-    # Reject duplicate destinations before any disk op.
+    # Reject duplicate destinations before any disk op. Lowercase the key so
+    # case-insensitive filesystems (macOS APFS default, Windows NTFS) don't
+    # let "apuntes/X.md" and "apuntes/x.md" slip through and silently
+    # overwrite each other on disk. ``os.path.normcase`` is a no-op on POSIX
+    # so it can't be used here.
     seen: set[str] = set()
     for m in plan.moves:
-        if m["to"] in seen:
+        key = m["to"].lower()
+        if key in seen:
             raise ValueError(f"duplicate destination in plan: {m['to']!r}")
-        seen.add(m["to"])
+        seen.add(key)
 
     try:
         for m in plan.moves:

@@ -212,6 +212,28 @@ def test_commit_rejects_duplicate_destinations(tmp_path):
     assert not (vault / "apuntes" / "x.md").exists()
 
 
+def test_commit_rejects_case_only_duplicate_destinations(tmp_path):
+    """macOS APFS is case-insensitive by default — two moves whose only
+    difference is letter casing collide on disk; the dedupe set must catch it."""
+    vault = tmp_path / "vault"
+    run_dir = tmp_path / "run"
+    aug = run_dir / "workers" / "w001" / "augmented"
+    aug.mkdir(parents=True)
+    (aug / "a.md").write_text("A", encoding="utf-8")
+    (aug / "b.md").write_text("B", encoding="utf-8")
+
+    plan = ConsolidationPlan(
+        moves=[
+            {"from": "workers/w001/augmented/a.md", "to": "apuntes/X.md"},
+            {"from": "workers/w001/augmented/b.md", "to": "apuntes/x.md"},
+        ],
+        concept_writes=[], tag_index_updates=[], log_entries=[],
+    )
+    tx = TransactionLog(run_dir / "tx.json")
+    with pytest.raises(ValueError, match="duplicate destination"):
+        commit(plan=plan, vault_root=vault, run_dir=run_dir, tx_log=tx)
+
+
 def test_committer_nul_encoded_target_survives_json_roundtrip(tmp_path):
     """H7: rollback after reload from disk must still parse \\x00-encoded target."""
     vault = tmp_path / "vault"
