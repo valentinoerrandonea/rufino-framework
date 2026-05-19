@@ -61,27 +61,32 @@ def _extract_zip(zip_path: Path, dest: Path, skipped: list[Path]) -> None:
                 shutil.copyfileobj(src, out)
 
 
-def _group_for(file: Path, corpus_root: Path) -> str:
-    rel = file.relative_to(corpus_root)
-    parts = rel.parts
-    return parts[0] if len(parts) > 1 else "_root"
-
-
-def _stage_one_file(src_file: Path, inbox_group_dir: Path, skipped: list[Path]) -> Path | None:
+def _stage_one_file(
+    src_file: Path,
+    inbox_group_dir: Path,
+    rel_under_group: Path,
+    skipped: list[Path],
+) -> Path | None:
     suffix = src_file.suffix.lower()
-    inbox_group_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = inbox_group_dir / rel_under_group.parent
     if suffix in PASSTHROUGH_EXTS:
-        target = inbox_group_dir / src_file.name
+        target = target_dir / src_file.name
+        if target.exists():
+            raise StagingError(f"staging collision at {target}")
+        target_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_file, target)
         return target
     if suffix in CONVERTIBLE_EXTS:
+        target = target_dir / (src_file.stem + ".md")
+        if target.exists():
+            raise StagingError(f"staging collision at {target}")
         try:
             md = convert_to_markdown(src_file)
         except (ConversionError, UnsupportedFormatError) as e:
             log.warning("skipping %s: %s", src_file, e)
             skipped.append(src_file)
             return None
-        target = inbox_group_dir / (src_file.stem + ".md")
+        target_dir.mkdir(parents=True, exist_ok=True)
         target.write_text(md, encoding="utf-8")
         return target
     log.warning("skipping unsupported format %s", src_file)
@@ -112,9 +117,15 @@ def stage_corpus(source: Path, run_dir: Path) -> StagedCorpus:
     for file in sorted(corpus_root.rglob("*")):
         if not file.is_file():
             continue
-        group = _group_for(file, corpus_root)
+        rel = file.relative_to(corpus_root)
+        if len(rel.parts) > 1:
+            group = rel.parts[0]
+            rel_under_group = Path(*rel.parts[1:])
+        else:
+            group = "_root"
+            rel_under_group = rel
         inbox_group = inbox_root / group
-        target = _stage_one_file(file, inbox_group, staged.skipped)
+        target = _stage_one_file(file, inbox_group, rel_under_group, staged.skipped)
         if target is not None:
             staged.groups.setdefault(group, []).append(target)
     return staged

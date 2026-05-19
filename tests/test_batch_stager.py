@@ -1,8 +1,10 @@
+import shutil
 import zipfile
 from pathlib import Path
 
 import pytest
 
+from rufino.engine.process.batch.errors import StagingError
 from rufino.engine.process.batch.stager import (
     StagedCorpus,
     stage_corpus,
@@ -160,3 +162,36 @@ def test_stage_zip_slip_entries_are_skipped(tmp_path):
     assert not (run_dir.parent / "escape.md").exists()
     assert (run_dir / "inbox" / "math" / "legit.md").exists()
     assert any("escape.md" in str(p) for p in staged.skipped)
+
+
+def test_stage_preserves_nested_subdirs_within_group(tmp_path):
+    """Codex H1: math/unit1/lesson.md and math/unit2/lesson.md must not collide."""
+    source = tmp_path / "corpus"
+    (source / "math" / "unit1").mkdir(parents=True)
+    (source / "math" / "unit2").mkdir(parents=True)
+    (source / "math" / "unit1" / "lesson.md").write_text("ONE", encoding="utf-8")
+    (source / "math" / "unit2" / "lesson.md").write_text("TWO", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    staged = stage_corpus(source, run_dir)
+
+    math_paths = [p.relative_to(run_dir) for p in staged.groups["math"]]
+    assert len(set(math_paths)) == 2, f"paths collided: {math_paths}"
+    contents = {p.read_text(encoding="utf-8") for p in staged.groups["math"]}
+    assert contents == {"ONE", "TWO"}
+
+
+def test_stage_rejects_collision_after_extension_normalization(tmp_path):
+    """A .docx that converts to lesson.md and a sibling lesson.md must not silently merge."""
+    source = tmp_path / "corpus"
+    source.mkdir()
+    (source / "lesson.md").write_text("FROM_MD", encoding="utf-8")
+    # Use the bundled fixture docx that converts to "lesson.md"
+    fixture = Path(__file__).parent / "fixtures" / "batch" / "hello.docx"
+    shutil.copy2(fixture, source / "lesson.docx")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    with pytest.raises(StagingError, match="collision"):
+        stage_corpus(source, run_dir)
