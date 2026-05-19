@@ -26,6 +26,7 @@ from rufino.engine.process.batch.qa_pending import (
     write_questions_to_vault,
 )
 from rufino.engine.process.batch.retry import retry_failed
+from rufino.engine.process.batch.runner_helper import MAX_OUTPUT_BYTES
 from rufino.engine.process.batch.stager import stage_corpus
 from rufino.engine.process.batch.validator import NoteValidation, validate_worker_output
 from rufino.engine.process.batch.worker_prompt import (
@@ -307,12 +308,18 @@ async def _run_batch_locked(
             run_id=run_id,
         )
 
-    await dispatch(
+    outcome = await dispatch(
         plan=plan, run_dir=run_dir,
         system_prompt_for=_prompt_for, vault_slug=vault_slug,
         max_workers=effective_workers, timeout_seconds=timeout_seconds,
     )
     log.info("DISPATCH done max_workers=%d", effective_workers)
+    if outcome.truncated_count:
+        log.warning(
+            "DISPATCH truncated_workers=%d cap=%d bytes "
+            "(revisar logs si el output incompleto causó fallos downstream)",
+            outcome.truncated_count, MAX_OUTPUT_BYTES,
+        )
 
     # VALIDATE + RETRY
     all_passed: list[NoteValidation] = []

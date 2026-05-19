@@ -31,11 +31,17 @@ class WorkerOutcome:
     exit_code: int
     stdout: str = ""
     stderr: str = ""
+    truncated: bool = False
 
 
 @dataclass(frozen=True)
 class DispatchOutcome:
     workers: tuple[WorkerOutcome, ...] = field(default_factory=tuple)
+
+    @property
+    def truncated_count(self) -> int:
+        """How many workers had stdout/stderr capped at MAX_OUTPUT_BYTES."""
+        return sum(1 for w in self.workers if w.truncated)
 
 
 def build_argv(*, system_prompt: str, vault_slug: str) -> list[str]:
@@ -90,6 +96,7 @@ async def _run_one(
         worker_id=assignment.worker_id,
         exit_code=result.exit_code,
         stdout=result.stdout, stderr=result.stderr,
+        truncated=result.truncated,
     )
 
 
