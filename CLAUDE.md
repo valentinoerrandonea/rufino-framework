@@ -126,7 +126,7 @@ Migrations are bash scripts in `migrations/`, named `<from>-to-<to>.sh`. They:
 - get tracked one-per-line in `~/.rufino/applied-migrations`
 - have `$RUFINO_HOME` available
 
-The directory is currently empty (no migrations yet). The `README.md` there has the contract.
+The directory contains markers for prior version transitions (`0.0.2-to-0.0.3.sh`, `0.0.3-to-0.1.0.sh`). New migrations should follow the contract in `migrations/README.md`.
 
 ## Test conventions
 
