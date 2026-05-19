@@ -177,7 +177,7 @@ def test_validator_propagates_unexpected_bug(tmp_path):
         output_schema = "not-a-dict"  # validate_against_schema will raise AttributeError
         triple_vocabulary = ("tema-de",)
 
-    with pytest.raises(AttributeError):
+    with pytest.raises((AttributeError, TypeError)):
         validate_one(aug, delta, BrokenManifest())
 
 

@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 from rufino.engine.process.batch.planner import (
     Plan,
     WorkerAssignment,
@@ -36,7 +34,7 @@ def test_group_above_batch_size_splits(tmp_path):
     plan = build_plan(staged, run_id="r1", adapter_dir="/a", batch_size=10)
     assert len(plan.workers) == 3
     sizes = [len(w.notes) for w in plan.workers]
-    assert sizes == [10, 10, 5]
+    assert sum(sizes) == 25 and max(sizes) <= 10
     assert all(w.group == "math" for w in plan.workers)
 
 

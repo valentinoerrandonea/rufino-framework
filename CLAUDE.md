@@ -104,6 +104,17 @@ Each primitive's `manifest.py` parses and validates the adapter manifest before 
 
 If you see one of these and assume it's broken, check the plan docs first.
 
+### Deferred for v0.2+
+
+These are tracked rough edges shipped in v0.1.0 that we explicitly chose not to fix yet. If you hit one, check it's still on the list before opening a new ticket:
+
+- **Unbounded stdout/stderr capture** in `engine/process/batch/runner_helper.py` — a misbehaving `claude` worker could OOM the parent process. Marked with a `TODO(v0.2)`.
+- **Advisory lock per vault** — `rufino process-batch` and `qa-resume` can be invoked concurrently against the same vault and stomp each other's run dirs. v0.2 will take a flock on `<vault>/.rufino/lock`.
+- **Worker ID padding** — worker IDs render as `w001`/`w002`/… today, capped at three digits. A corpus producing >999 workers will collide. v0.2 widens to `:04d`.
+- **`transform_hook` execution** — accepted by the manifest parser, ignored by the runner. See `docs/primitives/process.md`.
+- **Ingest `output_mode: emit_augmented`** — manifest parses it, dispatcher does not branch on it.
+- **Single-note `rufino process --mode full`** — exits with code 2. Use `process-batch` instead; the single-note path is out of scope until the planner has a "batch of one" mode.
+
 ## Versioning + migrations
 
 `upgrade.sh` is keyed on `rufino version`, which reads `src/rufino/version.py:VERSION`. **Code changes without a version bump are invisible to `upgrade.sh`** — it'll print `Already at X. Nothing to do.` after `git pull`. Bump `VERSION` *and* `pyproject.toml`'s `version` together when releasing.

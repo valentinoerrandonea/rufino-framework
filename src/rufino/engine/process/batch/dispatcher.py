@@ -18,6 +18,12 @@ from rufino.engine.process.batch.runner_helper import ClaudeResult, run_claude
 
 SESSION_EXPIRED_EXIT_CODE = 41
 
+# Final positional argument passed to `claude -p`. The system prompt carries
+# all the instructions; this string just nudges the worker to start. Kept as
+# a constant so retry.py can pass the exact same kickoff and tests can grep
+# for a single source of truth.
+_WORKER_KICKOFF = "Procesá las notas listadas en assignment.json siguiendo el system prompt."
+
 
 @dataclass(frozen=True)
 class WorkerOutcome:
@@ -40,7 +46,7 @@ def build_argv(*, system_prompt: str, vault_slug: str) -> list[str]:
         "--allowedTools",
         f"Read,Write,Glob,mcp__ask-rufino-{vault_slug}__*",
         "--",
-        "Procesá las notas listadas en assignment.json siguiendo el system prompt.",
+        _WORKER_KICKOFF,
     ]
 
 

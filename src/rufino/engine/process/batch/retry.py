@@ -27,6 +27,7 @@ from rufino.engine.process.batch.worker_prompt import (
 from rufino.engine.process.manifest import WorkerAdapterManifest
 
 
+# LLM stderr is rarely useful past first KB; 500 chars keeps error.json small.
 _STDERR_TAIL_CHARS = 500
 log = logging.getLogger(__name__)
 

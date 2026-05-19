@@ -29,6 +29,15 @@ CONVERTIBLE_EXTS = {".docx", ".pptx"}
 
 @dataclass
 class StagedCorpus:
+    """Mutable accumulator owned by ``stage_corpus``.
+
+    Unlike the rest of the batch dataclasses (frozen), ``StagedCorpus`` is
+    intentionally mutable: ``stage_corpus`` walks the source tree and pushes
+    into ``groups`` / ``skipped`` as it goes. The instance is treated as
+    read-only by the planner once staging returns. Do not export builder
+    methods; the staging function is the only legitimate writer.
+    """
+
     groups: dict[str, list[Path]] = field(default_factory=dict)
     skipped: list[Path] = field(default_factory=list)
 

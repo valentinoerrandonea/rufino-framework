@@ -26,6 +26,7 @@ class ClaudeResult:
 def _run_blocking(
     argv: list[str], cwd: Path, env: dict[str, str], timeout_seconds: float,
 ) -> ClaudeResult:
+    # TODO(v0.2): bound stdout/stderr capture — a misbehaving claude could OOM us.
     try:
         completed = subprocess.run(
             argv,

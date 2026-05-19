@@ -11,6 +11,10 @@ class ManifestParseError(Exception):
 
 VALID_MODES = {"full", "light", "lint"}
 
+# Default number of notes a single worker batches. Picked from spec §2.4 as
+# the sweet spot between worker spin-up overhead and Claude context budget.
+_DEFAULT_BATCH_SIZE = 10
+
 
 @dataclass(frozen=True)
 class WorkerAdapterManifest:
@@ -26,7 +30,7 @@ class WorkerAdapterManifest:
     qa_triggers: tuple[Mapping[str, Any], ...]
     context_injectors: tuple[Mapping[str, Any], ...]
     transform_hook: str | None = None
-    batch_size: int = 10
+    batch_size: int = _DEFAULT_BATCH_SIZE
 
 
 _REQUIRED = (
@@ -77,7 +81,7 @@ def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
             f"destination_path must be relative, got absolute {raw['destination_path']!r}"
         )
 
-    batch_size_raw = raw.get("batch_size", 10)
+    batch_size_raw = raw.get("batch_size", _DEFAULT_BATCH_SIZE)
     if not isinstance(batch_size_raw, int) or isinstance(batch_size_raw, bool):
         raise ManifestParseError(
             f"batch_size must be a positive integer, got {batch_size_raw!r}"

@@ -58,6 +58,9 @@ Vocabulario permitido de triples (cualquier otro lo rechazo y te hago retry):
 Required fields del output_schema (todos deben aparecer en el frontmatter):
 {required_block}
 
+Q&A triggers declarados por el adapter (si alguno aplica, NO augmentes — emití pending/<slug>.json):
+{qa_triggers_block}
+
 Tipos de errores típicos a evitar:
   - triples con relaciones fuera del vocabulario (te las rechazo y te hago retry)
   - frontmatter sin los required fields del output_schema
@@ -75,6 +78,32 @@ Tenés acceso al MCP `ask-rufino-{slug}`. Usalo para:
   - resolver contextos ambiguos antes de inventar
 {concepts_block}
 """
+
+
+def _format_qa_triggers(
+    qa_triggers: tuple[object, ...],
+) -> str:
+    """Format the manifest's ``qa_triggers`` as a bullet list of name+condition.
+
+    Each trigger is rendered as ``  - <name>: <condition>``. Missing fields
+    degrade gracefully (``(sin nombre)`` / ``(sin condición)``) so a malformed
+    manifest still produces a usable prompt — the worker prompt is not where
+    we want to crash. Empty list renders as ``(ninguno)``.
+    """
+    if not qa_triggers:
+        return "  (ninguno)"
+    lines: list[str] = []
+    for trig in qa_triggers:
+        # qa_triggers are MappingProxyType after _freeze, but we use .get
+        # via getattr to also tolerate plain dicts (tests + future shapes).
+        getter = getattr(trig, "get", None)
+        if getter is None:
+            lines.append(f"  - {trig!r}")
+            continue
+        name = getter("name") or "(sin nombre)"
+        condition = getter("condition") or "(sin condición)"
+        lines.append(f"  - {name}: {condition}")
+    return "\n".join(lines)
 
 
 def build_worker_system_prompt(
@@ -96,6 +125,7 @@ def build_worker_system_prompt(
         )
     else:
         required_block = "  (ninguno)"
+    qa_triggers_block = _format_qa_triggers(manifest.qa_triggers)
     preamble = _PREAMBLE_TEMPLATE.format(
         worker_id=assignment.worker_id,
         group=assignment.group,
@@ -104,6 +134,7 @@ def build_worker_system_prompt(
         run_id=run_id,
         vocab_block=vocab_block,
         required_block=required_block,
+        qa_triggers_block=qa_triggers_block,
     )
     concepts_block = ""
     if vault_concepts_top_n:
