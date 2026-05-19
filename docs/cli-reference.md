@@ -376,6 +376,23 @@ rufino disable-embeddings --vault <PATH> --state-dir <PATH>
 
 Vuelve `embeddings.enabled` a `false`. Idempotente.
 
+### Hybrid rerank — cross-encoder pinneado
+
+El modo `hybrid` rerankea la unión `lex + sem` con un cross-encoder
+(`BAAI/bge-reranker-base`). El modelo está pinneado por revisión en
+`src/rufino/runtime/embedder/cross_encoder.py:_DEFAULT_REVISION` para
+asegurar reproducibilidad: el primer query híbrido descarga ~400 MB la
+primera vez, luego usa cache local de Hugging Face.
+
+Variables de entorno opcionales:
+
+- `RUFINO_RERANKER_MODEL` — sobreescribe el modelo (default `BAAI/bge-reranker-base`).
+- `RUFINO_RERANKER_REVISION` — sobreescribe el commit SHA pineado.
+
+Si el cross-encoder falla en runtime (lib no instalada, red caída,
+RAM/VRAM insuficiente) `query` degrada a la unión sin rerank y loggea
+una advertencia, sin crashear.
+
 ---
 
 ## `rufino install-ingest`

@@ -24,6 +24,12 @@ class QueryLayer:
         self._lex = LexicalBackend(vault_root=self.vault_root)
         self._sem = SemanticBackend(vault_root=self.vault_root, embedder=self.embedder)
         self._graph = GraphBackend(vault_root=self.vault_root)
+        self._reranker: CrossEncoderReranker | None = None
+
+    def _get_reranker(self) -> CrossEncoderReranker:
+        if self._reranker is None:
+            self._reranker = CrossEncoderReranker()
+        return self._reranker
 
     def rebuild_indices(self) -> None:
         # Lexical (ripgrep) is index-free, nothing to rebuild.
@@ -55,7 +61,7 @@ class QueryLayer:
                 union.append(n)
         if not union:
             return []
-        rer = CrossEncoderReranker()
+        rer = self._get_reranker()
         contents: list[str] = []
         for n in union:
             try:
@@ -68,13 +74,14 @@ class QueryLayer:
                 contents.append("")
         try:
             order = rer.rerank(query, contents)
-        except ImportError:
-            # sentence-transformers not installed: degrade to union order so
-            # hybrid still returns useful results. We log loudly so the user
-            # sees the missing dep instead of silently getting lexical-only.
+        except (ImportError, OSError, RuntimeError) as e:
+            # Cualquier fallo del reranker (lib no instalada, hub network
+            # down, CUDA OOM, etc.) degrada a la unión sin rerank. El log
+            # loudly avisa al usuario para que vea qué falla.
             logger.warning(
-                "hybrid search reranker unavailable (sentence-transformers "
-                "not installed); returning union without rerank",
+                "hybrid search reranker unavailable (%s); "
+                "returning union without rerank",
+                e,
             )
             return union[:k]
         # Map reranked content back to NoteRefs. Multiple notes could have the

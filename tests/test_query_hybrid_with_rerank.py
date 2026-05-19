@@ -82,6 +82,69 @@ def test_hybrid_degrades_to_union_when_sentence_transformers_missing(
     assert "reranker unavailable" in caplog.text
 
 
+def test_hybrid_falls_back_when_cross_encoder_fails_with_oserror(tmp_path: Path) -> None:
+    """Regression: I-H / Codex P1 #4 — fallos no-ImportError del reranker no deben crashear."""
+    (tmp_path / "a.md").write_text("alpha note", encoding="utf-8")
+    fake_embedder = MagicMock()
+    ql = _make_layer(tmp_path, fake_embedder)
+
+    lex = [NoteRef("a.md")]
+    sem = []
+    rer = MagicMock()
+    rer.rerank = MagicMock(side_effect=OSError("hub network down"))
+
+    with patch.object(ql._lex, "search", return_value=lex), \
+         patch.object(ql._sem, "search", return_value=sem), \
+         patch(
+             "rufino.engine.query.api.CrossEncoderReranker",
+             return_value=rer,
+         ):
+        results = ql.search("alpha", mode="hybrid", k=5)
+    assert len(results) >= 1  # fallback a union order, no crash
+
+
+def test_hybrid_falls_back_when_cross_encoder_fails_with_runtimeerror(tmp_path: Path) -> None:
+    """Cross-encoder runtime fault (e.g. CUDA OOM) tampoco debe crashear."""
+    (tmp_path / "a.md").write_text("alpha note", encoding="utf-8")
+    fake_embedder = MagicMock()
+    ql = _make_layer(tmp_path, fake_embedder)
+
+    lex = [NoteRef("a.md")]
+    sem = []
+    rer = MagicMock()
+    rer.rerank = MagicMock(side_effect=RuntimeError("CUDA OOM"))
+
+    with patch.object(ql._lex, "search", return_value=lex), \
+         patch.object(ql._sem, "search", return_value=sem), \
+         patch(
+             "rufino.engine.query.api.CrossEncoderReranker",
+             return_value=rer,
+         ):
+        results = ql.search("alpha", mode="hybrid", k=5)
+    assert len(results) >= 1
+
+
+def test_hybrid_caches_reranker_across_calls(tmp_path: Path) -> None:
+    """El reranker se crea una vez por QueryLayer, no por query."""
+    (tmp_path / "a.md").write_text("alpha", encoding="utf-8")
+    fake_embedder = MagicMock()
+    ql = _make_layer(tmp_path, fake_embedder)
+
+    lex = [NoteRef("a.md")]
+    sem = []
+    rer = MagicMock()
+    rer.rerank = MagicMock(side_effect=lambda q, cands: cands)
+
+    ctor = MagicMock(return_value=rer)
+    with patch.object(ql._lex, "search", return_value=lex), \
+         patch.object(ql._sem, "search", return_value=sem), \
+         patch("rufino.engine.query.api.CrossEncoderReranker", ctor):
+        ql.search("q", mode="hybrid", k=5)
+        ql.search("q", mode="hybrid", k=5)
+        ql.search("q", mode="hybrid", k=5)
+    assert ctor.call_count == 1, "reranker debe instanciarse una sola vez (cache)"
+
+
 def test_hybrid_truncates_to_k(tmp_path: Path) -> None:
     for i in range(5):
         (tmp_path / f"n{i}.md").write_text(f"body {i}", encoding="utf-8")
