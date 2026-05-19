@@ -18,6 +18,44 @@ Augmenta notas crudas: frontmatter, body augmentado, triples tipados, tags por e
 
 **Estado v0.0.2:** `light` y `lint` operativos. `full` está stubbeado — el CLI exits con código 2. Aterriza con la integración LLM + Query real.
 
+## Batch processing (v0.1.0+)
+
+Para procesar un corpus entero (ZIP de Google Docs, carpeta con muchos
+PDFs/docx/md, etc.):
+
+```bash
+rufino process-batch <zip-or-dir> \
+  --adapter <process-adapter-dir> \
+  --vault <vault-root> \
+  [--workers N] [--batch-size N] [--dry-run]
+```
+
+Rufino NO embebe un LLM client — orquesta `claude` headless como workers en
+paralelo. Flujo en seis etapas:
+
+1. **STAGE** — descomprime ZIP (fix encoding cp437), convierte `.docx`/`.pptx`
+   a markdown, deja `.md`/`.txt`/`.pdf` verbatim.
+2. **PLAN** — agrupa por carpeta (1 grupo = 1 materia), parte grupos
+   > `batch_size` en sub-batches, emite `plan.json`. `--dry-run` corta acá.
+3. **DISPATCH** — invoca `claude` headless en paralelo bajo un asyncio
+   semaphore. Cada worker en su staging dir.
+4. **VALIDATE + RETRY** — validador post-hoc. Fallos disparan retry con prompt
+   aumentado; tras max 2 retries, la nota cae a `failed/<slug>/`.
+5. **CONSOLIDATE** — un Claude consolidador lee todos los outputs y produce
+   `consolidation-plan.json`. Timeout / plan vacío → fallback a naive commit.
+6. **COMMIT** — Rufino aplica el plan al vault vía el transaction log.
+
+Detalles en `docs/superpowers/specs/2026-05-18-process-batch-via-claude-orchestration-design.md`.
+
+### Q&A durante batch
+
+Si un worker dispara un `qa_trigger`, escribe `pending/<slug>.json` en su
+staging dir. Rufino, post-validate, escribe una pregunta a
+`<vault>/questions/<id>.md` (con `origin: process-batch`). El COMMIT para
+esa nota se difiere hasta que el usuario responde y corre `rufino qa-poll`,
+que retoma con la respuesta inyectada al prompt y archiva la pregunta a
+`questions/answered/`.
+
 ## Pipeline `full` (11 pasos)
 
 1. **Load adapter.** Busca el Process adapter por `note_type` del frontmatter o inferencia desde dir/pattern (`applies_when`).
@@ -123,13 +161,16 @@ Esto evita una clase entera de bugs donde un dispatcher mute state shared con un
 
 Si `update_tag_index()` o `append_to_log()` fallan **después** del LLM call exitoso, la nota source se preserva (no se `unlink()`-ea) — vas a poder retry sin perder el trabajo del LLM. Si todo OK, la source se elimina al final.
 
-## Estado v0.0.2
+## Estado v0.1.0
 
 - ✅ `mode_default: light` — operativo (registro + file move sin LLM)
 - ✅ `mode_default: lint` — operativo (validación pure)
-- ⏸ `mode_default: full` — engine implementado, CLI wiring deferido
+- ✅ Batch processing vía `rufino process-batch` — orquesta `claude` headless
+- ⏸ Single-note `rufino process --mode full` — sigue stubbed (exits 2); usá
+  `process-batch` apuntando a una carpeta de 1 archivo para single-note
+- ✅ Q&A loop end-to-end (worker emite pending, Rufino escribe pregunta,
+  `qa-poll` resume y archiva)
 - ⏸ `transform_hook` — manifest parsea, runner no invoca
-- ✅ Q&A check (cuando `full` se cierre) — engine listo; espera `full` mode
 
 ## Referencia
 

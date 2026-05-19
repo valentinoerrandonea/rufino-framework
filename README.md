@@ -137,6 +137,7 @@ Para ver flags completos: `rufino <cmd> --help`. Referencia detallada: [`docs/cl
 | `rufino install-memory-loop <adapter_dir> --vault X --claude-home Y` | Instala un Memory loop adapter en `~/.claude/` |
 | `rufino ingest <adapter_dir> --vault X --state-dir Y` | Corre un Ingest adapter una vez |
 | `rufino process <note> --vault X --mode {light\|full\|lint}` | Procesa una nota. `full` está stubbeado en v0.0.2 |
+| `rufino process-batch <zip-or-dir>` | Batch-procesa un corpus entero a notas augmentadas (v0.1.0) |
 | `rufino output <adapter_dir> --vault X` | Corre un Output adapter una vez |
 | `rufino qa-poll --vault X --state-dir Y` | Procesa respuestas pendientes en `questions/` |
 | `rufino query "..." --vault X --mode {lexical\|semantic\|hybrid}` | Busca en el vault. `semantic`/`hybrid` requieren embedder real (deferido) |

@@ -97,10 +97,10 @@ Each primitive's `manifest.py` parses and validates the adapter manifest before 
 
 ### Currently deferred (don't be surprised)
 
-- `transform_hook` / `transform.py` — manifest accepts the field, runner does not yet invoke it. See `docs/adapters/worker-adapter.md`.
-- Ingest `output_mode: emit_augmented` — manifest parses, dispatcher not wired (deferred to v1.1).
-- `rufino process --mode full` — exits with code 2; full-mode CLI wiring lands when LLM + Query are stitched together in a follow-up.
-- `_NoopEmbeddings` in `cli.py` — placeholder embedder until the real Ollama wiring lands (see Plan 9).
+- `transform_hook` / `transform.py` — manifest accepts the field, runner does not yet invoke it.
+- Ingest `output_mode: emit_augmented` — manifest parses, dispatcher not wired.
+- `rufino process --mode full` (single-note) — exits with code 2. For batch processing, use `rufino process-batch`. Reviving the single-note path is out of scope for v0.1.0.
+- `_NoopEmbeddings` in `cli.py` — placeholder embedder until the real Ollama wiring lands.
 
 If you see one of these and assume it's broken, check the plan docs first.
 

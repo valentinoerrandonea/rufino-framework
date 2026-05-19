@@ -105,6 +105,19 @@ def transform(input_dict: dict) -> dict:
 
 Implementación parcial en `src/rufino/runtime/sandbox.py` (base de subprocess con timeout); resto pendiente.
 
+## batch_size (Process, opcional)
+
+Solo aplica a Process. Controla cuántas notas procesa cada worker durante
+`rufino process-batch`:
+
+```yaml
+batch_size: <int>                    # optional, default 10 — workers process
+                                      # up to this many notes per spawn during
+                                      # rufino process-batch
+```
+
+El planner parte grupos más grandes en sub-batches del tamaño declarado. Default 10.
+
 ## Validación
 
 El framework valida cada manifest antes de cargar el adapter — al instalar el wizard, al correr `rufino ingest/process/output`, o al hacer `lint`. Errores bloquean operation; warnings se loggean.
