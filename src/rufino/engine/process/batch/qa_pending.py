@@ -126,11 +126,12 @@ def _existing_answer_filled(question_path: Path) -> bool:
             # clearly populated the field; do not clobber.
             return True
         return bool(answer.strip())
-    # Backward-compat: pre-v0.1.0 question files put the answer field at
-    # the start of a body line ("answer: <text>") rather than in
-    # frontmatter. Scan only the first body line that starts with
-    # "answer:" so a question text that mentions the substring elsewhere
-    # is not treated as filled.
+    # Hand-edited / legacy compat: a user may have written
+    # ``answer: <text>`` directly as a body line. Match only at column 0
+    # so a Markdown blockquote (``> answer: x``), an indented continuation
+    # of question prose, or a code-fenced example doesn't trigger a false
+    # positive. Anything more ambiguous defaults to "not filled" so the
+    # next write run overwrites safely.
     for line in body.splitlines():
         if line.startswith("answer:"):
             return bool(line[len("answer:"):].strip())

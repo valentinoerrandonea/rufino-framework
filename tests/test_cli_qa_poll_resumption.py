@@ -176,6 +176,40 @@ def test_qa_resume_rejects_malicious_run_id(tmp_path):
         )
 
 
+@pytest.mark.parametrize("field,value", [
+    ("run_id", ".."),
+    ("worker_id", ".."),
+    ("pending_note", ".."),
+    ("pending_note", "."),
+])
+def test_qa_resume_rejects_pure_dot_identifiers(tmp_path, field, value):
+    """``..`` and ``.`` match [A-Za-z0-9._-]+ but walk the filesystem when
+    joined into a path. _assert_safe_id must reject them explicitly."""
+    vault = tmp_path / "vault"
+    (vault / "questions").mkdir(parents=True)
+    qfile = vault / "questions" / "q1.md"
+    fm = {
+        "origin": "process-batch",
+        "run_id": "valid-run",
+        "worker_id": "w001",
+        "pending_note": "valid",
+        "trigger": "t",
+        "context": "c",
+    }
+    fm[field] = value
+    lines = ["---"]
+    lines.extend(f"{k}: {v!r}" for k, v in fm.items())
+    lines.extend(["---", 'answer: "sí"', ""])
+    qfile.write_text("\n".join(lines), encoding="utf-8")
+
+    from rufino.engine.process.batch.qa_resume import resume_pending_qa
+    from rufino.engine.process.batch.errors import BatchError
+    with pytest.raises(BatchError, match="unsafe identifier"):
+        asyncio.run(
+            resume_pending_qa(vault_root=vault, question_file=qfile)
+        )
+
+
 def test_qa_resume_rejects_malicious_worker_id(tmp_path):
     """Same as above but the path-traversal lives in worker_id."""
     vault = tmp_path / "vault"

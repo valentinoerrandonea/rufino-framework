@@ -45,6 +45,9 @@ log = logging.getLogger(__name__)
 
 _PASSTHROUGH_EXTS = (".md", ".pdf", ".txt")
 _SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+# Pure-dot identifiers (".", "..", "...") match the regex but walk the
+# filesystem when joined into a path. Reject them explicitly.
+_FORBIDDEN_IDS = frozenset({".", ".."})
 
 
 def _assert_safe_id(value: object, *, field: str) -> str:
@@ -53,7 +56,11 @@ def _assert_safe_id(value: object, *, field: str) -> str:
     Raises ``BatchError`` (not ``ValueError``) so callers can distinguish
     user-controlled bad input from internal logic errors.
     """
-    if not isinstance(value, str) or not _SAFE_ID.fullmatch(value):
+    if (
+        not isinstance(value, str)
+        or not _SAFE_ID.fullmatch(value)
+        or value in _FORBIDDEN_IDS
+    ):
         raise BatchError(
             f"unsafe identifier in question frontmatter ({field}={value!r})"
         )
