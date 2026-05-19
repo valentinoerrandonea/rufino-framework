@@ -1,17 +1,23 @@
 """Post-hoc validation of worker outputs against the adapter manifest."""
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from rufino.engine.process.helpers.frontmatter import (
+    FrontmatterError,
     parse_frontmatter,
     validate_against_schema,
 )
 from rufino.engine.process.helpers.triples import (
+    TripleError,
     extract_triples,
     validate_triples_against_vocab,
 )
 from rufino.engine.process.manifest import WorkerAdapterManifest
+
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -32,7 +38,7 @@ class ValidationReport:
     failed: tuple[NoteValidation, ...] = field(default_factory=tuple)
 
 
-def _validate_one(
+def validate_one(
     augmented_path: Path,
     delta_path: Path,
     manifest: WorkerAdapterManifest,
@@ -42,8 +48,20 @@ def _validate_one(
 
     try:
         text = augmented_path.read_text(encoding="utf-8")
+    except OSError as e:
+        return NoteValidation(
+            slug=slug, augmented_path=augmented_path, delta_path=None,
+            errors=(f"cannot read augmented file: {e}",),
+        )
+    except UnicodeDecodeError as e:
+        return NoteValidation(
+            slug=slug, augmented_path=augmented_path, delta_path=None,
+            errors=(f"augmented file is not valid utf-8: {e}",),
+        )
+
+    try:
         fm, _body = parse_frontmatter(text)
-    except Exception as e:
+    except FrontmatterError as e:
         return NoteValidation(
             slug=slug, augmented_path=augmented_path, delta_path=None,
             errors=(f"failed to parse frontmatter: {e}",),
@@ -51,16 +69,17 @@ def _validate_one(
 
     try:
         validate_against_schema(fm, manifest.output_schema)
-    except Exception as e:
+    except FrontmatterError as e:
         errors.append(f"schema violation: {e}")
 
     try:
         triples = extract_triples(fm)
         validate_triples_against_vocab(triples, set(manifest.triple_vocabulary))
-    except Exception as e:
+    except TripleError as e:
         errors.append(f"triple validation: {e}")
 
-    if not delta_path.exists():
+    delta_exists = delta_path.exists()
+    if not delta_exists:
         errors.append("delta json file missing")
     else:
         try:
@@ -70,7 +89,7 @@ def _validate_one(
 
     return NoteValidation(
         slug=slug, augmented_path=augmented_path,
-        delta_path=delta_path if delta_path.exists() else None,
+        delta_path=delta_path if delta_exists else None,
         errors=tuple(errors),
     )
 
@@ -84,9 +103,13 @@ def validate_worker_output(
     passed: list[NoteValidation] = []
     failed: list[NoteValidation] = []
     if not aug_dir.exists():
+        log.info(
+            "no augmented/ in %s; treating as pending-only or empty worker output",
+            staging_dir,
+        )
         return ValidationReport()
     for aug_path in sorted(aug_dir.glob("*.md")):
         delta_path = delta_dir / f"{aug_path.stem}.json"
-        result = _validate_one(aug_path, delta_path, manifest)
+        result = validate_one(aug_path, delta_path, manifest)
         (passed if result.passed else failed).append(result)
     return ValidationReport(passed=tuple(passed), failed=tuple(failed))

@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from rufino.engine.process.batch.validator import (
     NoteValidation,
     ValidationReport,
+    validate_one,
     validate_worker_output,
 )
 from rufino.engine.process.manifest import parse_worker_manifest
@@ -111,11 +113,68 @@ def test_malformed_delta_flags(tmp_path):
     assert any("json" in e.lower() for e in report.failed[0].errors)
 
 
-def test_pending_only_is_skipped(tmp_path):
+def test_pending_only_is_skipped(tmp_path, caplog):
     manifest = parse_worker_manifest(_MANIFEST)
     pending = tmp_path / "pending"
     pending.mkdir()
     (pending / "x.json").write_text("{}")
-    report = validate_worker_output(tmp_path, manifest)
+    with caplog.at_level(logging.INFO, logger="rufino.engine.process.batch.validator"):
+        report = validate_worker_output(tmp_path, manifest)
     assert report.passed == ()
     assert report.failed == ()
+    # absence of augmented/ should at least leave a trace in the log
+    assert any("augmented" in r.message.lower() for r in caplog.records)
+
+
+def test_unreadable_augmented_reports_os_error_not_frontmatter(tmp_path):
+    manifest = parse_worker_manifest(_MANIFEST)
+    aug = tmp_path / "augmented" / "x.md"
+    aug.parent.mkdir(parents=True)
+    aug.write_text("---\ntitle: t\nmateria: m\n---\n")
+    delta = tmp_path / "deltas" / "x.json"
+    delta.parent.mkdir()
+    delta.write_text("{}")
+    # Make file unreadable to force an OSError on read_text.
+    aug.chmod(0o000)
+    try:
+        result = validate_one(aug, delta, manifest)
+    finally:
+        aug.chmod(0o644)
+    assert not result.passed
+    msg = " ".join(result.errors).lower()
+    assert "cannot read" in msg or "permission" in msg
+    assert "frontmatter" not in msg
+
+
+def test_non_utf8_augmented_reports_decode_error_not_frontmatter(tmp_path):
+    manifest = parse_worker_manifest(_MANIFEST)
+    aug = tmp_path / "augmented" / "x.md"
+    aug.parent.mkdir(parents=True)
+    aug.write_bytes(b"---\ntitle: \xff\xfe binary\n---\n")
+    delta = tmp_path / "deltas" / "x.json"
+    delta.parent.mkdir()
+    delta.write_text("{}")
+    result = validate_one(aug, delta, manifest)
+    assert not result.passed
+    msg = " ".join(result.errors).lower()
+    assert "utf-8" in msg or "decode" in msg
+    assert "frontmatter" not in msg
+
+
+def test_validator_propagates_unexpected_bug(tmp_path):
+    """Manifest-shape bugs (TypeError, KeyError from Rufino code) must NOT
+    be swallowed as 'schema violation' — they're Rufino bugs, not LLM noise.
+    """
+    aug = tmp_path / "augmented" / "x.md"
+    aug.parent.mkdir(parents=True)
+    aug.write_text("---\ntitle: t\nmateria: m\n---\n")
+    delta = tmp_path / "deltas" / "x.json"
+    delta.parent.mkdir()
+    delta.write_text("{}")
+
+    class BrokenManifest:
+        output_schema = "not-a-dict"  # validate_against_schema will raise AttributeError
+        triple_vocabulary = ("tema-de",)
+
+    with pytest.raises(AttributeError):
+        validate_one(aug, delta, BrokenManifest())

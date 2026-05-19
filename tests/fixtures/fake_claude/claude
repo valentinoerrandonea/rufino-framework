@@ -2,7 +2,7 @@
 """Fake `claude -p` for testing rufino process-batch.
 
 Mode (env var):
-  FAKE_CLAUDE_MODE: augment | augment_bad | qa | session_expired | empty | hang
+  FAKE_CLAUDE_MODE: augment | augment_bad | qa | session_expired | empty | hang | fail
 
 Notes to process are read from `assignment.json` in cwd when present
 (the dispatcher writes it). Fallback for direct runner_helper tests:
@@ -102,6 +102,9 @@ def main() -> int:
     if mode == "hang":
         time.sleep(3600)
         return 0
+    if mode == "fail":
+        sys.stderr.write("fake-claude: simulated unexpected failure\n")
+        return 42
 
     cwd = Path.cwd()
     assignment = _read_assignment(cwd)
