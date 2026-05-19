@@ -31,6 +31,7 @@ from rufino.engine.process.batch.worker_prompt import (
 from rufino.engine.process.helpers.frontmatter import FrontmatterError, parse_frontmatter
 from rufino.engine.process.manifest import parse_worker_manifest
 from rufino.runtime.transaction_log import TransactionLog
+from rufino.runtime.vault_lock import VaultLockedError, vault_lock
 from rufino.runtime.vault_slug import compute_vault_slug
 
 
@@ -164,6 +165,29 @@ async def run_batch(
     adapter_dir = adapter_dir.expanduser().resolve()
     source = source.expanduser().resolve()
 
+    try:
+        with vault_lock(vault_root, wait=False):
+            return await _run_batch_locked(
+                source=source, adapter_dir=adapter_dir, vault_root=vault_root,
+                workers=workers, batch_size=batch_size, dry_run=dry_run,
+                skip_consolidator=skip_consolidator,
+                timeout_seconds=timeout_seconds,
+            )
+    except VaultLockedError as e:
+        raise BatchError(str(e)) from e
+
+
+async def _run_batch_locked(
+    *,
+    source: Path,
+    adapter_dir: Path,
+    vault_root: Path,
+    workers: int | None,
+    batch_size: int | None,
+    dry_run: bool,
+    skip_consolidator: bool,
+    timeout_seconds: float,
+) -> BatchRunResult:
     if not adapter_dir.is_dir():
         raise BatchError(f"adapter_dir {adapter_dir} is not a directory")
     manifest_path = adapter_dir / "manifest.yaml"

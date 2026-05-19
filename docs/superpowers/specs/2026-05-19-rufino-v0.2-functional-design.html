@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Rufino v0.2 — Functional end-to-end design</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 980px; margin: 2em auto; padding: 0 1em; line-height: 1.55; color: #222; }
+  h1, h2, h3, h4 { line-height: 1.2; }
+  h1 { border-bottom: 2px solid #222; padding-bottom: 0.3em; }
+  h2 { border-bottom: 1px solid #ddd; padding-bottom: 0.25em; margin-top: 2.4em; }
+  h3 { margin-top: 1.6em; }
+  h4 { margin-top: 1.2em; color: #444; }
+  code { background: #f4f4f4; padding: 0.1em 0.3em; border-radius: 3px; font-family: "SF Mono", Menlo, monospace; font-size: 0.9em; }
+  pre { background: #f4f4f4; padding: 0.8em 1em; border-radius: 5px; overflow-x: auto; font-size: 0.9em; }
+  pre code { background: transparent; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #ddd; padding: 0.45em 0.65em; text-align: left; vertical-align: top; }
+  th { background: #f4f4f4; }
+  blockquote { border-left: 4px solid #ddd; margin: 0.6em 0; padding: 0.2em 1em; color: #555; background: #fafafa; }
+  .meta { color: #666; font-size: 0.92em; }
+  .gap { background: #fff3cd; padding: 0.1em 0.4em; border-radius: 3px; font-size: 0.85em; }
+  .closes { color: #1a7f37; font-weight: 600; }
+  ul, ol { padding-left: 1.6em; }
+  li { margin: 0.2em 0; }
+</style>
+</head>
+<body>
+
+<h1>Rufino v0.2 — Functional end-to-end design</h1>
+
+<p class="meta">
+  <strong>Status:</strong> draft 2026-05-19 — pendiente review de Val<br>
+  <strong>Author:</strong> Val + Claude<br>
+  <strong>Replaces / supersedes:</strong> ningún spec previo; consolida lo deferido en
+  <a href="2026-05-18-process-batch-via-claude-orchestration-design.md">process-batch design</a>
+  y la nota de <code>CLAUDE.md</code> "Deferred for v0.2+".<br>
+  <strong>Tracking:</strong> cierra los 12 gaps verificados entre lo que el wizard promete
+  y lo que el framework entrega en v0.1.0. Target release: <strong>v0.2.0</strong> en una sola release (big bang).
+</p>
+
+<h2>Problema</h2>
+
+<p>
+El usuario corre <code>rufino bootstrap</code>, charla con Claude wizard, confirma el sistema y
+el wizard invoca <code>rufino materialize</code>. El materializer crea el esqueleto del vault
+y el adapter de Memory loop, pero <strong>no genera los adapters de Ingest, Process y Output</strong>
+aunque el <code>WizardSpec</code> ya captura los campos <code>sources / processing / outputs</code>.
+El docstring de <code>materialize()</code> (<code>wizard/materializer.py:30-35</code>) admite el
+gap explícitamente: <em>"v1 wires only the Memory loop installer; Ingest/Process/Output installers
+are invoked separately via the per-primitive CLIs until they're folded into this orchestrator in a
+follow-up iteration."</em>
+</p>
+
+<p>
+Combinado con otras limitaciones documentadas (<code>--mode full</code> exits 2,
+<code>emit_augmented</code> y <code>transform_hook</code> sin runner, embedder placeholder,
+forward graph traversal stubbed, scheduler real ausente, advisory lock sin implementar, output
+del worker sin acotar, worker ID padding a 3 dígitos), el resultado es que el wizard <strong>le
+promete al usuario un sistema end-to-end que no existe</strong>. Esta release lo cierra todo.
+</p>
+
+<h2>Approach: big bang v0.2.0 con acceptance checklist verificable</h2>
+
+<p>
+Una sola release <code>v0.2.0</code> cubre los 12 gaps. El criterio único de "listo" es la
+acceptance checklist de la Sección 1: 15 ítems verificables comando + resultado esperado.
+No "casi", no "principal", no "sentimos que funciona" — si cualquier ítem falla, no es v0.2.0.
+</p>
+
+<p>
+Rationale del big bang: Val priorizó tener TODO funcional al mismo tiempo, sin estados intermedios
+donde el framework parezca "casi listo pero no". Approaches incrementales (4 releases por
+criticidad / 3 releases user-journey) se evaluaron y descartaron explícitamente.
+</p>
+
+<hr>
+
+<h2>Sección 1 — Mapa global + criterio "listo"</h2>
+
+<h3>Acceptance checklist v0.2.0 (criterio único de done)</h3>
+
+<table>
+<thead>
+<tr><th>#</th><th>Acceptance test</th><th>Comando</th><th>Pasa si…</th></tr>
+</thead>
+<tbody>
+<tr><td>1</td><td>Wizard end-to-end sin corpus</td><td><code>rufino bootstrap</code> → contestar wizard de un vertical (ej: facultad), confirmar</td><td>Existen <code>~/.rufino/adapters/{ingest,process,output}/&lt;vault-slug&gt;/&lt;adapter&gt;/</code> con <code>manifest.yaml</code> válido + <code>prompt.md</code>/<code>template.md</code> por adapter; <code>rufino materialize</code> exit 0</td></tr>
+<tr><td>2</td><td>Wizard end-to-end con corpus</td><td>Igual + apuntar a un ZIP con 3-5 docs al cierre</td><td><code>&lt;vault&gt;/.rufino/runs/&lt;run-id&gt;/</code> existe, notas augmentadas en <code>&lt;vault&gt;/apuntes/...</code>, <code>_meta/_tags.md</code> poblado</td></tr>
+<tr><td>3</td><td>Embedder opt-in (sí)</td><td>Bootstrap con "sí" a embeddings, Ollama corriendo</td><td><code>&lt;vault&gt;/_meta/embeddings.sqlite</code> poblado; <code>rufino query "X" --mode semantic</code> &gt;0 resultados; <code>--mode hybrid</code> también</td></tr>
+<tr><td>4</td><td>Embedder opt-in (no)</td><td>Bootstrap con "no" a embeddings</td><td><code>--mode lexical</code> funciona; <code>--mode semantic</code> exit 2 con mensaje claro (<em>"embedder no configurado, corré `rufino enable-embeddings`"</em>)</td></tr>
+<tr><td>5</td><td>Forward graph traversal</td><td><code>rufino query</code> usando <code>traverse(reverse=False)</code> desde el MCP</td><td>Devuelve la lista, no <code>NotImplementedError</code></td></tr>
+<tr><td>6</td><td>Single-note process</td><td><code>rufino process &lt;una.md&gt; --mode full --adapter &lt;dir&gt; --vault X</code></td><td>Exit 0, nota augmentada en destino</td></tr>
+<tr><td>7</td><td>Ingest <code>emit_augmented</code></td><td>Adapter declarado <code>output_mode: emit_augmented</code>, <code>rufino ingest &lt;dir&gt;</code></td><td>Streaming a Process funciona, notas augmentadas sin paso por inbox</td></tr>
+<tr><td>8</td><td><code>transform_hook</code></td><td>Adapter Process con <code>transform_hook: ./transform.py</code> que modifica un field</td><td>El field cambió en la nota final</td></tr>
+<tr><td>9</td><td>Scheduler real</td><td><code>rufino install-ingest &lt;adapter-dir&gt;</code> en macOS</td><td><code>~/Library/LaunchAgents/&lt;id&gt;.plist</code> instalado; <code>launchctl list</code> lo lista; dispara según schedule</td></tr>
+<tr><td>10</td><td>Concurrencia</td><td>Dos <code>rufino process-batch</code> simultáneos al mismo vault</td><td>El segundo falla rápido con "vault locked"</td></tr>
+<tr><td>11</td><td>Memoria acotada</td><td>Worker que tira <code>print("A" * 1e8)</code></td><td>Proceso parent no OOMea; output truncado loud</td></tr>
+<tr><td>12</td><td>Worker padding</td><td>Corpus que genera 1500 workers</td><td>IDs son <code>w0001..w1500</code>, sin colisión</td></tr>
+<tr><td>13</td><td>Migración limpia</td><td>Usuario v0.1.0 corre <code>./upgrade.sh</code></td><td>Exit 0; <code>~/.rufino/applied-migrations</code> tiene <code>0.1.0-to-0.2.0.sh</code>; vault del usuario intacto</td></tr>
+<tr><td>14</td><td>Regresión cero</td><td><code>pytest</code> completo</td><td>100% verde; coverage ≥80% global y ≥85% en módulos nuevos</td></tr>
+<tr><td>15</td><td>E2E integration</td><td><code>pytest tests/integration/test_v0_2_end_to_end.py</code></td><td>Corre <code>bootstrap → materialize → batch → query</code> con <code>fake_claude</code> fixture, todo verde</td></tr>
+</tbody>
+</table>
+
+<blockquote>
+<strong>Regla de hierro:</strong> en el momento que <code>pytest</code> está verde y los 15 ítems
+se pueden ejecutar a mano sobre un vault recién bootstrappeado pasando todos, la release está
+lista. No hay zona gris.
+</blockquote>
+
+<h3>Mapa de archivos que toca v0.2.0</h3>
+
+<table>
+<thead>
+<tr><th>Área</th><th>Archivos nuevos</th><th>Archivos modificados</th></tr>
+</thead>
+<tbody>
+<tr>
+  <td>Wizard</td>
+  <td><code>wizard/adapter_materializers/{ingest,process,output}.py</code></td>
+  <td><code>wizard/system_prompt_assembler.py</code>, <code>wizard/operative_rules.md</code>, <code>wizard/checklist.md</code>, <code>wizard/materializer.py</code>, <code>wizard/spec_schema.py</code></td>
+</tr>
+<tr>
+  <td>Embedder</td>
+  <td><code>runtime/embedder/ollama.py</code>, <code>runtime/embedder/detect.py</code>, <code>runtime/embedder/cross_encoder.py</code>, <code>runtime/embedder/resolve.py</code></td>
+  <td><code>cli.py</code> (resolver embedder según per-vault config; nuevos comandos)</td>
+</tr>
+<tr>
+  <td>Query</td>
+  <td>—</td>
+  <td><code>engine/query/graph.py</code> (forward traversal); <code>engine/query/api.py</code> (hybrid re-rank real)</td>
+</tr>
+<tr>
+  <td>Process</td>
+  <td>—</td>
+  <td><code>engine/process/dispatcher.py</code> (<code>mode=full</code> = wrapper sobre batch); <code>engine/process/batch/runner_helper.py</code> (bounded I/O); <code>engine/process/batch/planner.py</code> (worker ID <code>:04d</code>)</td>
+</tr>
+<tr>
+  <td>Ingest</td>
+  <td><code>engine/ingest/emit_augmented.py</code></td>
+  <td><code>engine/ingest/runner.py</code> (dispatcher branches)</td>
+</tr>
+<tr>
+  <td>Transform hook</td>
+  <td><code>runtime/transform_hook.py</code></td>
+  <td>Ingest runner + Process dispatcher (invocación)</td>
+</tr>
+<tr>
+  <td>Scheduler</td>
+  <td><code>runtime/scheduler/{__init__.py, launchd.py, cron.py}</code></td>
+  <td><code>cli.py</code> (3 nuevos comandos: install-ingest, uninstall-ingest, list-ingests)</td>
+</tr>
+<tr>
+  <td>Concurrency</td>
+  <td><code>runtime/vault_lock.py</code></td>
+  <td><code>engine/process/batch/runner.py</code>, <code>engine/process/batch/qa_resume.py</code> (acquire lock)</td>
+</tr>
+<tr>
+  <td>Per-vault state</td>
+  <td>schema yaml en <code>~/.rufino/state/vaults/&lt;slug&gt;.yaml</code></td>
+  <td>—</td>
+</tr>
+<tr>
+  <td>Migration</td>
+  <td><code>migrations/0.1.0-to-0.2.0.sh</code></td>
+  <td><code>src/rufino/version.py</code>, <code>pyproject.toml</code></td>
+</tr>
+<tr>
+  <td>Tests</td>
+  <td><code>tests/integration/test_v0_2_end_to_end.py</code> + ~14 unit test files</td>
+  <td>Tests existentes afectados por cambios de schema/CLI</td>
+</tr>
+<tr>
+  <td>Docs</td>
+  <td>—</td>
+  <td><code>docs/primitives/*.md</code>, <code>docs/cli-reference.md</code>, <code>docs/getting-started.md</code>, <code>CLAUDE.md</code>, docstring de <code>wizard/materializer.py</code></td>
+</tr>
+</tbody>
+</table>
+
+<p>
+<strong>Estimación de tamaño:</strong> ~25-30 archivos nuevos, ~15-20 modificados,
+~3000-4000 líneas netas (~60% LOC son tests).
+</p>
+
+<hr>
+
+<h2>Sección 2 — Wizard end-to-end <span class="gap">cierra gaps 1, 2, 3</span></h2>
+
+<h3>2.1 Formalizar <code>WizardSpec.sources / processing / outputs</code></h3>
+
+<p>
+Hoy son <code>tuple[Mapping[str, Any], ...]</code> libres — el materializer no puede consumirlos porque
+no hay shape garantizado. Los formalizamos a tres dataclasses tipados, con validación en
+<code>spec_schema.py</code>. <strong>Decisión cerrada</strong>: romper compatibilidad de specs viejos
+sin migración (no hay specs en producción todavía).
+</p>
+
+<pre><code>@dataclass(frozen=True)
+class IngestSpec:
+    adapter_name: str
+    source_name: str
+    output_mode: Literal["emit_fact", "import_raw", "emit_augmented"]
+    schedule: str | None
+    auth: Mapping[str, Any]
+    # según output_mode (campos opcionales):
+    emits: tuple[str, ...] | None
+    fact_schema: Mapping[str, str] | None
+    destination: Mapping[str, str] | None
+    dedup_by: str | None
+    target_inbox: str | None
+    process_with: str | None
+    trigger: Literal["immediate", "defer"] | None
+    process_inline_with: str | None
+
+@dataclass(frozen=True)
+class ProcessSpec:
+    adapter_name: str
+    note_type: str
+    applies_when: Mapping[str, Any]
+    llm: Literal["sonnet", "haiku", "opus"]
+    output_schema: Mapping[str, Mapping[str, str]]
+    triple_vocabulary: tuple[str, ...]
+    tag_axes: tuple[Mapping[str, Any], ...]
+    destination_path: str
+    qa_triggers: tuple[Mapping[str, Any], ...]
+    context_injectors: tuple[Mapping[str, Any], ...]
+    batch_size: int
+    prompt_instructions: str        # ← texto que va a prompt.md
+
+@dataclass(frozen=True)
+class OutputSpec:
+    adapter_name: str
+    trigger: Mapping[str, Any]
+    query: tuple[Mapping[str, Any], ...]
+    template_body: str               # ← contenido jinja2 que va a template.md
+    delivery: tuple[Mapping[str, Any], ...]
+</code></pre>
+
+<p>
+<code>validate_spec()</code> se extiende para reusar los validadores existentes de cada primitive
+(<code>engine/{ingest,process,output}/manifest.py</code>). Se aplican al subset del spec antes de
+tocar disco. <strong>Reutilización pura, no código nuevo de validación.</strong>
+</p>
+
+<h3>2.2 Wizard system prompt: instruir a Claude a generar adapters</h3>
+
+<p><strong>Decisión cerrada:</strong> Claude wizard redacta <code>prompt_instructions</code> y
+<code>template_body</code> online (no plantillas hardcoded en el repo) — máxima flexibilidad por
+vertical.</p>
+
+<ul>
+<li><code>system_prompt_assembler.py _TEMPLATE</code>: agregar bloque "Output esperado (detallado)" que requiere para cada <code>processing[i]</code> un <code>prompt_instructions</code> de markdown completo con triple vocabulary, output schema, tag axes y guidelines de augmentación vertical-specific; y para cada <code>outputs[i]</code> un <code>template_body</code> jinja2 funcional.</li>
+<li><code>operative_rules.md</code> regla nueva #9: "Para cada Process adapter, redactá <code>prompt_instructions</code> que un worker headless de Claude pueda usar como segundo bloque del system prompt. Incluí ejemplos del vertical si ayuda."</li>
+<li><code>checklist.md</code>: agregar dos ítems — "Cada <code>processing[]</code> tiene <code>prompt_instructions</code> redactadas" y "Cada <code>outputs[]</code> tiene <code>template_body</code> redactado".</li>
+</ul>
+
+<p>Nada de esto requiere código Python — son archivos de texto que el wizard lee.</p>
+
+<h3>2.3 Materializer escribe los 3 grupos de adapters</h3>
+
+<p>Nuevos módulos en <code>src/rufino/wizard/adapter_materializers/</code>:</p>
+
+<table>
+<thead>
+<tr><th>Módulo</th><th>Función pública</th><th>Output</th></tr>
+</thead>
+<tbody>
+<tr><td><code>ingest.py</code></td><td><code>materialize_ingest(spec, base_dir, vault_slug, tx_log)</code></td><td><code>&lt;base_dir&gt;/adapters/ingest/&lt;vault_slug&gt;/&lt;adapter_name&gt;/manifest.yaml</code></td></tr>
+<tr><td><code>process.py</code></td><td><code>materialize_process(spec, ...)</code></td><td><code>.../adapters/process/&lt;vault_slug&gt;/&lt;adapter_name&gt;/{manifest.yaml,prompt.md}</code></td></tr>
+<tr><td><code>output.py</code></td><td><code>materialize_output(spec, ...)</code></td><td><code>.../adapters/output/&lt;vault_slug&gt;/&lt;adapter_name&gt;/{manifest.yaml,template.md}</code></td></tr>
+</tbody>
+</table>
+
+<p>Cada uno:</p>
+<ol>
+<li>Mkdir transaccional vía <code>apply_and_log(op="mkdir", rollback="rmdir")</code>.</li>
+<li>Escribe <code>manifest.yaml</code> derivado del spec.</li>
+<li><strong>Antes de escribir</strong>, corre el manifest validator del primitive correspondiente sobre el dict serializable. Si falla → raise → <code>tx_log.rollback()</code> borra todo el batch.</li>
+<li>Process: escribe <code>prompt.md</code> desde <code>spec.prompt_instructions</code>.</li>
+<li>Output: escribe <code>template.md</code> desde <code>spec.template_body</code>.</li>
+</ol>
+
+<p><code>materialize()</code> en <code>materializer.py</code> itera después del skeleton, antes del
+<code>install_memory_loop</code> opcional:</p>
+
+<pre><code>for ingest_spec in spec.sources:
+    materialize_ingest(ingest_spec, base_dir=state_dir.parent, vault_slug=slug, tx_log=tx_log)
+for process_spec in spec.processing:
+    materialize_process(process_spec, ...)
+for output_spec in spec.outputs:
+    materialize_output(output_spec, ...)
+</code></pre>
+
+<p>
+Si cualquier adapter falla validación, <strong>todo</strong> <code>materialize()</code> rollbackea
+— incluido el vault skeleton e incluido el memory_loop adapter. Atomicity total.
+</p>
+
+<p>El docstring viejo (<em>"v1 wires only the Memory loop installer..."</em>) se reemplaza con uno
+que refleje la nueva realidad.</p>
+
+<h3>2.4 Wizard ofrece corpus inicial al cierre</h3>
+
+<p><strong>Decisión cerrada:</strong> regla operativa del wizard (cero código Python).</p>
+
+<p><code>operative_rules.md</code> regla nueva #10:</p>
+
+<blockquote>
+"Después de invocar <code>rufino materialize</code> con éxito, preguntá al user:
+'¿tenés un corpus inicial (ZIP o carpeta) que quieras procesar ahora?'. Si dice que sí, invocá
+<code>rufino process-batch &lt;path&gt; --adapter ~/.rufino/adapters/process/&lt;vault-slug&gt;/&lt;elegido&gt;
+--vault &lt;vault-path&gt;</code>. Si hay &gt;1 process adapter, preguntá cuál usar. Si dice que no, cerrá
+normal con resumen."
+</blockquote>
+
+<p><code>--allowedTools</code> del bootstrap ya incluye <code>Bash(rufino materialize:*)</code> y
+<code>Bash(rufino query:*)</code>; agregar <code>Bash(rufino process-batch:*)</code>.</p>
+
+<h3>2.5 Tests</h3>
+
+<table>
+<thead><tr><th>Test</th><th>Cubre</th></tr></thead>
+<tbody>
+<tr><td><code>test_spec_schema_v0_2.py</code></td><td>Nuevos dataclasses + validación; required missing → <code>SpecError</code>; tipos incorrectos; cross-refs (<code>import_raw.process_with</code> apunta a un <code>processing[].adapter_name</code> que existe)</td></tr>
+<tr><td><code>test_materialize_ingest_adapter.py</code></td><td>Los tres <code>output_mode</code>; manifest invalid → rollback; multiple adapters coexisten</td></tr>
+<tr><td><code>test_materialize_process_adapter.py</code></td><td><code>prompt_instructions</code> verbatim a <code>prompt.md</code>; validator bloquea bad triple vocab</td></tr>
+<tr><td><code>test_materialize_output_adapter.py</code></td><td><code>template_body</code> a <code>template.md</code>; trigger cron y on_event; channels válidos</td></tr>
+<tr><td><code>test_materialize_full.py</code></td><td>Spec con N+M+K adapters → todos existen + todos pasan validación; rollback si el último falla → ningún adapter ni vault queda</td></tr>
+<tr><td><code>test_wizard_prompt_v0_2.py</code></td><td>Prompt menciona <code>prompt_instructions</code> y <code>template_body</code>; checklist incluye los nuevos ítems</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2>Sección 3 — Embedder opt-in <span class="gap">cierra gap 4</span></h2>
+
+<h3>3.1 Detección de Ollama</h3>
+
+<p>Nuevo módulo <code>runtime/embedder/detect.py</code> con una función pública
+<code>detect_ollama() -> OllamaDetection</code> que chequea tres cosas: binary <code>ollama</code> en
+PATH, server escuchando en <code>http://localhost:11434/api/tags</code>, modelo <code>nomic-embed-text</code>
+listado por el server. Devuelve dataclass <code>OllamaDetection(binary_present, server_running, model_installed, error)</code>.
+No raisea — su única responsabilidad es reportar.</p>
+
+<p>CLI helper nuevo: <code>rufino detect-embeddings</code> (exit 0 si todo OK, 1 si falta algo, con mensaje legible).</p>
+
+<h3>3.2 Pregunta opt-in en el wizard</h3>
+
+<p>Nueva regla operativa #11 en <code>operative_rules.md</code>:</p>
+
+<blockquote>
+"Antes del big bang, preguntá: <em>'¿Querés indexación semántica del vault? Permite búsqueda por
+similitud además de match exacto. Requiere Ollama corriendo + modelo `nomic-embed-text`.'</em> Si
+dice que sí, corré <code>rufino detect-embeddings</code>. Si falla, ofrecé el comando
+<code>ollama pull nomic-embed-text</code> y repreguntá. Si el usuario no quiere instalar Ollama,
+marcá no-embeddings y avisá: 'podés activarlo después con `rufino enable-embeddings --vault X`'.
+Pasá la decisión a <code>rufino materialize</code> con <code>--embeddings/--no-embeddings</code>."
+</blockquote>
+
+<p><code>--allowedTools</code> del bootstrap se extiende con <code>Bash(rufino detect-embeddings:*)</code> y
+<code>Bash(rufino enable-embeddings:*)</code>.</p>
+
+<h3>3.3 <code>OllamaEmbedder</code></h3>
+
+<p><code>runtime/embedder/ollama.py</code>, ~30 LOC:</p>
+
+<pre><code>@dataclass(frozen=True)
+class OllamaEmbedder:
+    model: str = "nomic-embed-text"
+    base_url: str = "http://localhost:11434"
+    timeout: float = 30.0
+
+    def embed(self, text: str) -> list[float]:
+        resp = httpx.post(
+            f"{self.base_url}/api/embeddings",
+            json={"model": self.model, "prompt": text},
+            timeout=self.timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["embedding"]
+</code></pre>
+
+<p>Si Ollama no responde al runtime → raise loud. <strong>No</strong> degrade silencioso a lexical.</p>
+
+<h3>3.4 Persistencia de la elección — <code>~/.rufino/state/vaults/&lt;slug&gt;.yaml</code></h3>
+
+<p><strong>Decisión cerrada (A):</strong> per-vault config en <code>~/.rufino/state/vaults/&lt;slug&gt;.yaml</code>
+(archivo nuevo). NO en el vault del usuario, NO en el manifest del memory loop.</p>
+
+<pre><code>vault_slug: facultad
+embeddings:
+  enabled: true
+  backend: ollama
+  model: nomic-embed-text
+</code></pre>
+
+<p>Lo escribe el materializer atómicamente vía tx_log. Lo lee <code>cli.py</code> al resolver el embedder.
+Trade-off conocido: si el usuario mueve el vault de máquina, el setting se pierde — se acepta porque
+ensuciar el vault con configuración del framework es peor.</p>
+
+<h3>3.5 <code>cli.py</code> resuelve el embedder</h3>
+
+<p>Reemplazo de <code>_NoopEmbeddings()</code> por <code>_resolve_embedder(vault_root)</code>:</p>
+<ul>
+<li>Lee <code>~/.rufino/state/vaults/&lt;slug&gt;.yaml</code>.</li>
+<li>Si <code>embeddings.enabled=true</code> → <code>OllamaEmbedder(...)</code>.</li>
+<li>Si false o archivo ausente → <code>_NoopEmbeddings</code> (lexical sigue funcionando).</li>
+</ul>
+
+<p><code>rufino query --mode semantic</code> hoy exit 2 con mensaje genérico. Pasa a chequear el
+embedder: si es Noop → exit 2 con mensaje específico (<em>"embeddings no configurados para este
+vault; corré `rufino enable-embeddings --vault X`"</em>). Si es real → procede.</p>
+
+<h3>3.6 Comandos <code>enable-embeddings</code> / <code>disable-embeddings</code></h3>
+
+<p><strong>Decisión cerrada (A):</strong> comandos CLI separados, idempotentes, no requieren
+re-correr el wizard.</p>
+
+<pre><code>rufino enable-embeddings --vault X
+# 1. detect_ollama() — exit 1 si falla con mensaje claro
+# 2. Update ~/.rufino/state/vaults/&lt;slug&gt;.yaml: embeddings.enabled=true (atómico)
+# 3. QueryLayer(vault, OllamaEmbedder()).rebuild_indices() — popula embeddings.sqlite
+# 4. Exit 0 con "Embeddings activos."
+
+rufino disable-embeddings --vault X
+# 1. Update: embeddings.enabled=false
+# 2. NO borra embeddings.sqlite (cache reconstruible; barato dejarla)
+# 3. Exit 0 (idempotente)
+</code></pre>
+
+<h3>3.7 MCP server</h3>
+
+<p><code>rufino mcp-server --vault X</code> hoy hace <code>QueryLayer(vault, _NoopEmbeddings())</code>.
+Cambia a <code>_resolve_embedder()</code>. Si el vault tiene embeddings activas, el MCP las usa para
+<code>search_vault(mode="hybrid")</code>. Si no, los tools que requieren semántica devuelven error
+claro al cliente MCP (Claude Code).</p>
+
+<h3>3.8 Hybrid mode con cross-encoder real</h3>
+
+<p><strong>Decisión cerrada (B):</strong> cross-encoder real en v0.2, NO la versión naive con suma de scores.</p>
+
+<p>Nuevo módulo <code>runtime/embedder/cross_encoder.py</code>:</p>
+
+<ul>
+<li>Modelo: <code>BAAI/bge-reranker-base</code> (~280MB) vía <code>sentence-transformers</code>. Razonablemente liviano, calidad sólida para re-ranking general.</li>
+<li>API: <code>CrossEncoderReranker.rerank(query: str, candidates: list[NoteRef]) -> list[NoteRef]</code>.</li>
+<li>Carga lazy: el modelo se descarga la primera vez que se usa (cacheado en <code>~/.cache/huggingface/</code>); subsiguientes corridas instantáneas.</li>
+<li><strong>Inferencia en CPU por default</strong>; respeta <code>CUDA_VISIBLE_DEVICES</code> / <code>MPS_AVAILABLE</code> si el usuario tiene aceleración.</li>
+</ul>
+
+<p>Pipeline de <code>--mode hybrid</code> en <code>engine/query/api.py</code> (solo con embeddings habilitadas):</p>
+<ol>
+<li>Lexical top-K (default 50) + semantic top-K (default 50) → unión deduplicada.</li>
+<li>Cross-encoder re-rankea la unión → top-N (default 10).</li>
+</ol>
+<p>Si embeddings deshabilitadas, <code>--mode hybrid</code> exit 2 con el mismo mensaje específico
+que <code>--mode semantic</code>. No hay silent degradation a lexical — el usuario pidió hybrid;
+si no puede, lo decimos.</p>
+
+<p>Trade-off conocido: 280MB de modelo extra + latencia inferencia (~100-300ms por query en CPU
+moderna para top-50 candidatos). Aceptado a cambio de calidad de búsqueda real.</p>
+
+<h3>3.9 Dependencias</h3>
+
+<p><code>pyproject.toml</code>:</p>
+<ul>
+<li><code>httpx>=0.27</code> (cliente HTTP para Ollama)</li>
+<li><code>sentence-transformers>=3.0</code> (cross-encoder)</li>
+<li>Indirectas: <code>torch</code> (CPU build), <code>transformers</code>, <code>huggingface-hub</code></li>
+</ul>
+
+<p>Las dependencias del cross-encoder son significativas (~500MB con torch CPU). Trade-off
+aceptado para v0.2.</p>
+
+<h3>3.10 Tests</h3>
+
+<table>
+<thead><tr><th>Test</th><th>Cubre</th></tr></thead>
+<tbody>
+<tr><td><code>test_embedder_detect.py</code></td><td>Mock subprocess + httpx; cada combinación de los 3 estados</td></tr>
+<tr><td><code>test_embedder_ollama.py</code></td><td>Mock httpx; happy path, timeout, error 500, malformed response</td></tr>
+<tr><td><code>test_embedder_cross_encoder.py</code></td><td>Mock <code>sentence_transformers.CrossEncoder.predict</code>; orden de re-rank correcto; carga lazy</td></tr>
+<tr><td><code>test_resolve_embedder.py</code></td><td>Yaml presente true/false/missing/corrupt → resolve correcto</td></tr>
+<tr><td><code>test_cli_enable_disable_embeddings.py</code></td><td>enable + rebuild invoked; Ollama down → exit 1; disable idempotente</td></tr>
+<tr><td><code>test_cli_query_semantic.py</code></td><td>Vault con embeddings → semantic devuelve resultados; sin → exit 2 mensaje específico</td></tr>
+<tr><td><code>test_query_hybrid_with_rerank.py</code></td><td>Mock embedder + cross-encoder; hybrid combina y re-rankea correctamente</td></tr>
+</tbody>
+</table>
+
+<h3>3.11 Out of scope (v0.3+)</h3>
+<ul>
+<li>Otros backends embedder (OpenAI, Cohere) — abstracción permite agregarlos.</li>
+<li>Auto-reindex con file watcher — sigue manual (<code>enable-embeddings</code> o <code>mcp-server --rebuild</code>).</li>
+<li>Optimización de cross-encoder (cuantización int8, etc.).</li>
+</ul>
+
+<hr>
+
+<h2>Sección 4 — Forward graph traversal <span class="gap">cierra gap 5</span></h2>
+
+<p>Hoy <code>engine/query/graph.py:71</code> tira <code>NotImplementedError</code> para
+<code>traverse(reverse=False)</code>. En SQLite ya están los triples — es solo una query distinta.</p>
+
+<ul>
+<li>Implementar la rama forward (sujeto → objeto) en <code>graph.py</code>.</li>
+<li>Multi-hop (<code>depth &gt; 1</code>) sigue diferido a v1.1; forward con <code>depth=1</code> queda funcional.</li>
+<li>MCP tool <code>traverse_relations</code> pasa a soportar <code>reverse=false</code>.</li>
+</ul>
+
+<p><strong>Tests:</strong> <code>test_query_graph_forward.py</code> — nota con triples conocidos, traverse forward
+devuelve la lista correcta; <code>depth&gt;1</code> sigue raiseando con mensaje claro.</p>
+
+<p><strong>Estimación:</strong> ~50 LOC, 1 test file.</p>
+
+<hr>
+
+<h2>Sección 5 — Single-note <code>process --mode full</code> <span class="gap">cierra gap 6</span></h2>
+
+<p>Hoy <code>rufino process X.md --mode full</code> exits 2. Convertimos el comando en un wrapper
+finito sobre <code>process-batch</code>:</p>
+
+<ul>
+<li>Crea un directorio temporal con la nota.</li>
+<li>Llama internamente a <code>run_batch()</code> con <code>--workers 1</code> sobre esa carpeta.</li>
+<li>Si genera Q&amp;A: escribe la pregunta al vault y exits 3 (código distinguible).</li>
+<li>Si OK: mueve la nota augmentada a destino y exits 0.</li>
+<li>Si falla: exits 1 + preserva staging para inspección.</li>
+</ul>
+
+<p>Es ergonomía pura — no agrega capability nueva, hace UX-friendly lo que ya existe.</p>
+
+<p><strong>Tests:</strong> <code>test_process_single_full.py</code> — happy path; Q&amp;A path
+(escribe pregunta + exits 3); failure path (preserva staging).</p>
+
+<p><strong>Estimación:</strong> ~100 LOC en <code>engine/process/dispatcher.py</code> (rama
+<code>full</code>), 1 test file.</p>
+
+<hr>
+
+<h2>Sección 6 — Ingest <code>emit_augmented</code> <span class="gap">cierra gap 7</span></h2>
+
+<p>Un Ingest adapter puede declarar <code>output_mode: emit_augmented</code> — "no escribas el raw
+al disco, mandalo directo al Process adapter". Hoy el manifest parsea pero el runner tira
+<code>NotImplementedError</code> en <code>engine/ingest/runner.py:58</code>.</p>
+
+<ul>
+<li>Implementar el branch en <code>runner.py</code>.</li>
+<li>En vez de escribir a <code>target_inbox</code> y dejar al Process tomar la nota desde disco,
+    el Ingest llama directamente al Process dispatcher en memoria con el record como input.</li>
+<li><code>process_inline_with</code> del manifest apunta al Process adapter target — el dispatcher
+    lo carga y ejecuta.</li>
+<li>Misma garantía transaccional: si el Process falla, el record se preserva en un staging temporal
+    para retry.</li>
+</ul>
+
+<p><strong>Tests:</strong> <code>test_ingest_emit_augmented.py</code> — Ingest con
+<code>emit_augmented</code> → Process recibe record → nota augmentada en destino sin paso por inbox;
+failure en Process → record preservado en staging.</p>
+
+<p><strong>Estimación:</strong> ~150 LOC entre <code>engine/ingest/emit_augmented.py</code> +
+cambios en <code>runner.py</code>, 2 test files.</p>
+
+<hr>
+
+<h2>Sección 7 — <code>transform_hook</code> runner <span class="gap">cierra gap 8</span></h2>
+
+<p>Los manifests de Ingest y Process aceptan <code>transform_hook: ./transform.py</code> — script
+Python opcional que transforma el output del LLM antes del disco. Hoy el manifest parsea pero el
+runner ignora.</p>
+
+<h4>Diseño</h4>
+<ul>
+<li>Nuevo <code>runtime/transform_hook.py</code>: <code>run_transform_hook(script_path, input_dict, timeout=30) -> output_dict</code>.</li>
+<li><strong>Ejecución sandboxeada por subprocess Python</strong>: input por stdin (JSON), output por stdout (JSON), sin acceso a red, timeout duro.</li>
+<li>Process dispatcher y Ingest runner llaman al hook después del LLM call si el manifest lo declara.</li>
+<li><strong>Errores del hook NO abortan el procesamiento</strong> — se loggean como warning y el output sin transformar se preserva. El hook es "best effort", no parte de la pipeline crítica.</li>
+</ul>
+
+<p><strong>Por qué subprocess y no <code>exec</code>/<code>import</code>:</strong> aislamiento de
+namespace + timeout limpio. El sandbox es defensa básica (timeout, sin red), no security boundary —
+el hook lo eligió el usuario, no es código de terceros random.</p>
+
+<p><strong>Tests:</strong> <code>test_transform_hook.py</code> — hook OK transforma; timeout →
+warning + output original; sintaxis inválida → warning + output original; <code>socket.connect()</code> →
+falla (red bloqueada).</p>
+
+<p><strong>Estimación:</strong> ~80 LOC, 1 test file.</p>
+
+<hr>
+
+<h2>Sección 8 — Scheduler launchd/cron real <span class="gap">cierra gap 9</span></h2>
+
+<p>Los manifests de Ingest declaran <code>schedule: "*/30 * * * *"</code>. Hoy
+<code>runtime/scheduler.py</code> tira <code>NotImplementedError</code> en al menos un branch — no
+hay instalación real. El usuario tiene que correr <code>rufino ingest</code> a mano siempre.</p>
+
+<h3>8.1 Estructura</h3>
+
+<p>Reorganización de <code>runtime/scheduler.py</code> en paquete <code>runtime/scheduler/</code>:</p>
+
+<table>
+<thead><tr><th>Módulo</th><th>Responsabilidad</th></tr></thead>
+<tbody>
+<tr><td><code>__init__.py</code></td><td>Detecta OS, devuelve backend correcto. Valida cron expressions.</td></tr>
+<tr><td><code>launchd.py</code> (macOS)</td><td>Genera plist en <code>~/Library/LaunchAgents/rufino-ingest-&lt;slug&gt;-&lt;adapter&gt;.plist</code>; carga con <code>launchctl bootstrap gui/&lt;uid&gt; &lt;plist&gt;</code>; descarga con <code>bootout</code>.</td></tr>
+<tr><td><code>cron.py</code> (Linux)</td><td>Edita crontab del usuario via <code>crontab -l | crontab -</code>. Cada entry marcada con <code># rufino-ingest:&lt;slug&gt;:&lt;adapter&gt;</code> para edit/uninstall sin romper otras entries.</td></tr>
+</tbody>
+</table>
+
+<h3>8.2 CLI</h3>
+
+<pre><code>rufino install-ingest &lt;adapter-dir&gt; --vault X     # registra schedule
+rufino uninstall-ingest &lt;adapter-dir&gt; --vault X   # quita schedule
+rufino list-ingests --vault X                     # lista qué hay activo
+</code></pre>
+
+<p>Todos vía <code>TransactionLog</code> (mismo patrón que <code>install-memory-loop</code>). Si la
+instalación falla a mitad → rollback total (plist borrado / crontab restaurado).</p>
+
+<h3>8.3 Integración con el wizard</h3>
+
+<p>Nueva regla operativa #12 en <code>operative_rules.md</code>:</p>
+
+<blockquote>
+"Si algún <code>sources[i]</code> tiene <code>schedule</code> declarado, después del corpus opcional
+preguntá al user: '¿querés que estos ingests corran automáticamente según su schedule?'. Si dice
+que sí, invocá <code>rufino install-ingest</code> por cada adapter de ingest con schedule. Si no,
+quedan manuales (<code>rufino ingest &lt;dir&gt;</code> cuando el user quiera)."
+</blockquote>
+
+<h3>8.4 Logging</h3>
+
+<p>Stdout/stderr de cada run automático → <code>~/.rufino/logs/ingest-&lt;adapter&gt;-&lt;timestamp&gt;.log</code>.
+Retención naive: últimas 7 corridas por adapter (rotación al escribir).</p>
+
+<h3>8.5 Por qué launchd + crontab y no systemd timers</h3>
+<p>Los más universales en macOS/Linux personal. El framework se asume single-user, no servidor.</p>
+
+<h3>8.6 Tests</h3>
+<ul>
+<li><code>test_scheduler_launchd.py</code>: mock <code>launchctl</code>; install genera plist correcto, bootstrap se invoca, uninstall hace bootout.</li>
+<li><code>test_scheduler_cron.py</code>: mock <code>crontab</code>; install agrega entry con marker correcto, uninstall remueve solo esa entry sin tocar el resto.</li>
+<li><code>test_scheduler_rollback.py</code>: install falla a mitad → plist borrado / crontab original restaurado.</li>
+<li><code>tests/manual/test_scheduler_real.py</code>: instalación real (skip si la plataforma no aplica) — verifica <code>launchctl list</code> o <code>crontab -l</code>.</li>
+</ul>
+
+<p><strong>Estimación:</strong> ~250 LOC entre los 3 módulos + 3 CLI commands, 3-4 test files.</p>
+
+<hr>
+
+<h2>Sección 9 — Concurrency hardening <span class="gap">cierra gaps 10, 11, 12</span></h2>
+
+<h3>9.1 Advisory lock per-vault (gap 10)</h3>
+
+<p>Hoy dos <code>rufino process-batch</code> simultáneos contra el mismo vault, o un
+<code>process-batch</code> + un <code>qa-resume</code> al mismo tiempo, pueden pisarse staging dirs.</p>
+
+<p>Fix: nuevo <code>runtime/vault_lock.py</code> con context manager:</p>
+
+<pre><code>with vault_lock(vault_root):  # flock sobre &lt;vault&gt;/.rufino/lock
+    ...
+</code></pre>
+
+<p><code>run_batch()</code> y <code>resume_pending_qa()</code> lo agarran al entrar. Si otro proceso
+lo tiene → exit 1 con mensaje claro (<em>"Vault locked by PID X. Esperá a que termine."</em>). Si
+el proceso lock-holder muere de cualquier forma, <code>flock</code> libera automático — no quedan
+locks huérfanos.</p>
+
+<h3>9.2 Bounded stdout/stderr del worker (gap 11)</h3>
+
+<p><code>engine/process/batch/runner_helper.py</code> hoy captura sin límite. Worker que tira
+<code>print("A" * 1e8)</code> puede OOMear el parent.</p>
+
+<p>Fix: read en chunks con cap total <code>MAX_OUTPUT_BYTES = 1 MB</code>. Si el worker excede →
+kill + log <em>"worker output exceeded 1MB, truncated"</em>.</p>
+
+<h3>9.3 Worker ID padding (gap 12)</h3>
+
+<p>Hoy IDs son <code>w001..w999</code> (cap <code>:03d</code>). Fix: <code>:04d</code> en
+<code>engine/process/batch/planner.py</code>. Tests existentes se actualizan.</p>
+
+<h3>9.4 Tests</h3>
+<ul>
+<li><code>test_vault_lock.py</code>: dos procesos, segundo bloquea + libera por context exit + libera por kill -9.</li>
+<li><code>test_runner_output_bounded.py</code>: output exceso truncado; output normal pasa intacto.</li>
+<li><code>test_planner_worker_id_padding.py</code>: 1500 notas → <code>w0001..w0150</code>.</li>
+</ul>
+
+<p><strong>Estimación:</strong> ~150 LOC, 3 test files.</p>
+
+<hr>
+
+<h2>Sección 10 — Versioning, migración y tests E2E</h2>
+
+<h3>10.1 Version bump</h3>
+<ul>
+<li><code>src/rufino/version.py</code>: <code>VERSION = "0.2.0"</code></li>
+<li><code>pyproject.toml</code>: <code>version = "0.2.0"</code></li>
+</ul>
+
+<h3>10.2 Migración <code>migrations/0.1.0-to-0.2.0.sh</code></h3>
+
+<p>Idempotente. Operaciones:</p>
+<ul>
+<li>Crea <code>~/.rufino/state/vaults/</code> si no existe.</li>
+<li>Por cada <code>~/.rufino/adapters/memory_loop/&lt;slug&gt;/manifest.yaml</code> ya instalado, escribe el yaml de per-vault state correspondiente con <code>embeddings.enabled: false</code> como default conservador (usuarios upgradeando no quieren sorpresas).</li>
+<li>Anota en <code>~/.rufino/applied-migrations</code>.</li>
+</ul>
+
+<p>NO toca vaults del usuario.</p>
+
+<h3>10.3 <code>upgrade.sh</code></h3>
+<p>Sin cambios — ya soporta migraciones nuevas por contrato.</p>
+
+<h3>10.4 Test integration end-to-end</h3>
+
+<p><code>tests/integration/test_v0_2_end_to_end.py</code> cubre los 15 ítems del acceptance checklist
+en un solo test programático. Usa fixtures:</p>
+
+<ul>
+<li><code>fake_claude</code> (ya existe para process-batch) — extender para simular también el wizard.</li>
+<li>Mock Ollama vía <code>httpx</code> mock — no requiere Ollama real en CI.</li>
+<li>Mock <code>launchctl</code>/<code>crontab</code> vía env var override.</li>
+<li><code>tmp_vault</code> + <code>tmp_rufino_home</code> ya existentes.</li>
+</ul>
+
+<p>Cada uno de los 15 ítems es un sub-test. Ítems específicos de plataforma (#9 launchd macOS)
+skipean si la plataforma no aplica.</p>
+
+<h3>10.5 Documentation updates</h3>
+<ul>
+<li><code>docs/primitives/*.md</code>: actualizar sección "Estado vX" de cada primitive al estado v0.2.</li>
+<li><code>docs/cli-reference.md</code>: agregar <code>detect-embeddings</code>, <code>enable-embeddings</code>, <code>disable-embeddings</code>, <code>install-ingest</code>, <code>uninstall-ingest</code>, <code>list-ingests</code>.</li>
+<li><code>docs/getting-started.md</code>: revisar flujo bootstrap, sacar menciones a "skeleton-only".</li>
+<li><code>wizard/materializer.py</code> docstring: reemplazar el viejo <em>"v1 wires only the Memory loop installer..."</em>.</li>
+<li><code>CLAUDE.md</code> (raíz): actualizar "Currently deferred" + "Deferred for v0.2+" — varios ítems se cierran.</li>
+</ul>
+
+<hr>
+
+<h2>Out of scope (v0.3+)</h2>
+
+<ul>
+<li>Multi-hop forward traversal en el grafo (<code>depth &gt; 1</code>).</li>
+<li>Backends embedder adicionales (OpenAI, Cohere).</li>
+<li>Cross-encoder optimizado (cuantización int8) — bge-reranker-base default es suficiente para v0.2.</li>
+<li>Auto-reindex con file watcher.</li>
+<li>Multi-user / servidor (el framework se asume single-user).</li>
+<li>systemd timers (<code>launchd</code> + <code>crontab</code> cubren macOS/Linux personal).</li>
+<li>API-key fallback para process-batch (sigue requiriendo <code>claude login</code> activo).</li>
+<li>Soporte <code>.doc</code>/<code>.ppt</code> legacy en stager (requiere LibreOffice/pandoc).</li>
+</ul>
+
+<hr>
+
+<h2>Test plan global</h2>
+
+<ul>
+<li>Todos los unit tests nuevos pasan (<code>pytest tests/test_*.py</code>).</li>
+<li>Test integration E2E pasa (<code>pytest tests/integration/test_v0_2_end_to_end.py</code>).</li>
+<li>Coverage ≥85% en módulos nuevos, ≥80% global.</li>
+<li>Tests existentes (Ingest <code>emit_fact</code>/<code>import_raw</code>, batch happy path, qa-poll resumption, MCP server, multi-vault, etc.) siguen verdes sin modificación funcional.</li>
+<li>Smoke manual en macOS y Linux: <code>rufino bootstrap</code> end-to-end → vault funcional con embeddings opcionales → corre <code>process-batch</code> sobre corpus de 3-5 docs → query semantic y hybrid devuelven resultados.</li>
+<li><code>./upgrade.sh</code> desde <code>v0.1.0</code> simulado: pasa migración, vault del usuario intacto, embeddings opt-out conservador aplicado.</li>
+</ul>
+
+<hr>
+
+<h2>Open items resueltos durante brainstorming</h2>
+
+<table>
+<thead><tr><th>Pregunta</th><th>Decisión</th></tr></thead>
+<tbody>
+<tr><td>Scope: ¿qué incluye v0.2?</td><td>Los 12 gaps verificados. Embedder incluido pero opt-in.</td></tr>
+<tr><td>Secuenciación: ¿incremental o big bang?</td><td>Big bang. Una sola release v0.2.0.</td></tr>
+<tr><td>Spec format breaking?</td><td>Sí, sin migración (no hay specs en producción).</td></tr>
+<tr><td><code>prompt_instructions</code>: ¿wizard o plantillas en repo?</td><td>Wizard online (máxima flexibilidad por vertical).</td></tr>
+<tr><td>Corpus inicial: ¿flag CLI o regla operativa?</td><td>Regla operativa del wizard (cero código nuevo).</td></tr>
+<tr><td>Persistencia de embedder choice: ¿dónde?</td><td><code>~/.rufino/state/vaults/&lt;slug&gt;.yaml</code> (per-vault state).</td></tr>
+<tr><td>Activación post-bootstrap: ¿flag o comandos?</td><td>Comandos separados <code>enable/disable-embeddings</code>.</td></tr>
+<tr><td>Hybrid mode: ¿naive o cross-encoder real?</td><td>Cross-encoder real (bge-reranker-base).</td></tr>
+</tbody>
+</table>
+
+</body>
+</html>

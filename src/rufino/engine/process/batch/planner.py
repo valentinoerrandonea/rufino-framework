@@ -60,7 +60,7 @@ def build_plan(
             continue
         if len(notes) <= batch_size:
             workers.append(WorkerAssignment(
-                worker_id=f"w{counter:03d}",
+                worker_id=f"w{counter:04d}",
                 group=group,
                 notes=tuple(notes),
             ))
@@ -70,7 +70,7 @@ def build_plan(
         for chunk_idx in range(chunks):
             slice_ = notes[chunk_idx * batch_size : (chunk_idx + 1) * batch_size]
             workers.append(WorkerAssignment(
-                worker_id=f"w{counter:03d}",
+                worker_id=f"w{counter:04d}",
                 group=group,
                 notes=tuple(slice_),
             ))

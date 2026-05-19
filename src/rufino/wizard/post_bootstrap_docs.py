@@ -3,6 +3,8 @@
 Lenguaje user — NO jerga técnica. Sigue las reglas de language_rules.md
 del wizard.
 """
+from collections.abc import Mapping
+
 from rufino.wizard.spec_schema import WizardSpec
 
 
@@ -62,8 +64,13 @@ o resúmenes nuevos.
 def _render_outputs_section(spec: WizardSpec) -> str:
     items = []
     for out in spec.outputs:
-        name = out.get("adapter_name", "output")
-        cron = out.get("cron", "")
+        name = out.adapter_name
+        cron = ""
+        trig = out.trigger
+        # ``trigger`` is frozen via ``_freeze_deep`` into a MappingProxyType,
+        # which is NOT a ``dict`` instance — match against ``Mapping`` instead.
+        if isinstance(trig, Mapping) and trig.get("type") == "cron":
+            cron = str(trig.get("expression", ""))
         suffix = f" ({cron})" if cron else ""
         items.append(f"- **{name.replace('-', ' ')}**{suffix}")
     return "\n\n## Vas a recibir\n\n" + "\n".join(items) + "\n"

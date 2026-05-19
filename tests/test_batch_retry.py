@@ -63,17 +63,17 @@ def test_retry_succeeds_on_second_try(tmp_path, monkeypatch):
     note = tmp_path / "inbox" / "g" / "n1.md"
     note.parent.mkdir(parents=True)
     note.write_text("# n\n")
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     failed = (_setup_failed_note(staging, "n1"),)
     canonical = _write_canonical_assignment(
-        staging, run_id=tmp_path.name, worker_id="w001", group="g", notes=(note,),
+        staging, run_id=tmp_path.name, worker_id="w0001", group="g", notes=(note,),
     )
 
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
 
     report = asyncio.run(retry_failed(
         failed=failed, manifest=manifest, adapter_prompt_text="",
-        worker_assignment=WorkerAssignment(worker_id="w001", group="g", notes=(note,)),
+        worker_assignment=WorkerAssignment(worker_id="w0001", group="g", notes=(note,)),
         run_dir=tmp_path, vault_slug="v",
         max_retries=2, timeout_seconds=30,
     ))
@@ -88,14 +88,14 @@ def test_retry_bounces_after_max_retries(tmp_path, monkeypatch):
     note = tmp_path / "inbox" / "g" / "n1.md"
     note.parent.mkdir(parents=True)
     note.write_text("# n\n")
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     failed = (_setup_failed_note(staging, "n1"),)
 
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment_bad")
 
     report = asyncio.run(retry_failed(
         failed=failed, manifest=manifest, adapter_prompt_text="",
-        worker_assignment=WorkerAssignment(worker_id="w001", group="g", notes=(note,)),
+        worker_assignment=WorkerAssignment(worker_id="w0001", group="g", notes=(note,)),
         run_dir=tmp_path, vault_slug="v",
         max_retries=2, timeout_seconds=30,
     ))
@@ -114,7 +114,7 @@ def test_retry_records_exit_code_and_stderr_when_claude_fails(tmp_path, monkeypa
     note = tmp_path / "inbox" / "g" / "n1.md"
     note.parent.mkdir(parents=True)
     note.write_text("# n\n")
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     failed = (_setup_failed_note(staging, "n1"),)
 
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "fail")
@@ -122,7 +122,7 @@ def test_retry_records_exit_code_and_stderr_when_claude_fails(tmp_path, monkeypa
     with caplog.at_level(logging.WARNING, logger="rufino.engine.process.batch.retry"):
         report = asyncio.run(retry_failed(
             failed=failed, manifest=manifest, adapter_prompt_text="",
-            worker_assignment=WorkerAssignment(worker_id="w001", group="g", notes=(note,)),
+            worker_assignment=WorkerAssignment(worker_id="w0001", group="g", notes=(note,)),
             run_dir=tmp_path, vault_slug="v",
             max_retries=2, timeout_seconds=30,
         ))
@@ -136,7 +136,7 @@ def test_retry_records_exit_code_and_stderr_when_claude_fails(tmp_path, monkeypa
 
 def test_retry_marks_missing_source_path_with_reason(tmp_path, monkeypatch, caplog):
     manifest = parse_worker_manifest(_MANIFEST)
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     # No matching note in worker_assignment for slug "ghost"
     failed = (_setup_failed_note(staging, "ghost"),)
     real_note = tmp_path / "inbox" / "g" / "other.md"
@@ -149,7 +149,7 @@ def test_retry_marks_missing_source_path_with_reason(tmp_path, monkeypatch, capl
         report = asyncio.run(retry_failed(
             failed=failed, manifest=manifest, adapter_prompt_text="",
             worker_assignment=WorkerAssignment(
-                worker_id="w001", group="g", notes=(real_note,),
+                worker_id="w0001", group="g", notes=(real_note,),
             ),
             run_dir=tmp_path, vault_slug="v",
             max_retries=2, timeout_seconds=30,
@@ -170,10 +170,10 @@ def test_retry_preserves_multi_note_canonical_assignment(tmp_path, monkeypatch):
     nA.parent.mkdir(parents=True)
     nA.write_text("# A\n")
     nB.write_text("# B\n")
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     failed = (_setup_failed_note(staging, "nA"),)
     canonical = _write_canonical_assignment(
-        staging, run_id=tmp_path.name, worker_id="w001", group="g", notes=(nA, nB),
+        staging, run_id=tmp_path.name, worker_id="w0001", group="g", notes=(nA, nB),
     )
 
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
@@ -181,7 +181,7 @@ def test_retry_preserves_multi_note_canonical_assignment(tmp_path, monkeypatch):
     asyncio.run(retry_failed(
         failed=failed, manifest=manifest, adapter_prompt_text="",
         worker_assignment=WorkerAssignment(
-            worker_id="w001", group="g", notes=(nA, nB),
+            worker_id="w0001", group="g", notes=(nA, nB),
         ),
         run_dir=tmp_path, vault_slug="v",
         max_retries=2, timeout_seconds=30,

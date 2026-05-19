@@ -10,10 +10,10 @@ Notes to process are read from `assignment.json` in cwd when present
 FAKE_CLAUDE_NOTES (newline- or os.pathsep-separated absolute paths).
 
 Per-worker overrides:
-  FAKE_CLAUDE_MODE_<WORKER_ID_UPPER> (e.g. FAKE_CLAUDE_MODE_W001) — when
+  FAKE_CLAUDE_MODE_<WORKER_ID_UPPER> (e.g. FAKE_CLAUDE_MODE_W0001) — when
   set and an assignment.json is present, this overrides FAKE_CLAUDE_MODE
   for that specific worker. Lets a dispatcher test exercise mixed
-  behavior across siblings (e.g. w001 → session_expired, w002 → augment).
+  behavior across siblings (e.g. w0001 → session_expired, w0002 → augment).
 
 augment_then_consolidate:
   Discriminates by cwd:
@@ -181,7 +181,7 @@ def main() -> int:
 
     if mode == "qa":
         run_id = assignment.get("run_id") or os.environ.get("FAKE_CLAUDE_RUN_ID", "test-run")
-        worker_id = assignment.get("worker_id") or os.environ.get("FAKE_CLAUDE_WORKER_ID", "w001")
+        worker_id = assignment.get("worker_id") or os.environ.get("FAKE_CLAUDE_WORKER_ID", "w0001")
         (cwd / "pending").mkdir(exist_ok=True)
         for note in notes:
             slug = note.stem

@@ -21,15 +21,15 @@ def _write_pending(staging: Path, slug: str, payload: dict) -> None:
 
 
 def test_collect_pending_finds_all_across_workers(tmp_path):
-    w1 = tmp_path / "workers" / "w001"
-    w2 = tmp_path / "workers" / "w002"
+    w1 = tmp_path / "workers" / "w0001"
+    w2 = tmp_path / "workers" / "w0002"
     _write_pending(w1, "n1", {
-        "origin": "process-batch", "run_id": "r1", "worker_id": "w001",
+        "origin": "process-batch", "run_id": "r1", "worker_id": "w0001",
         "pending_note": "n1", "input_path": "inbox/g/n1.md",
         "trigger": "ambig", "context": "c", "question": "?",
     })
     _write_pending(w2, "n2", {
-        "origin": "process-batch", "run_id": "r1", "worker_id": "w002",
+        "origin": "process-batch", "run_id": "r1", "worker_id": "w0002",
         "pending_note": "n2", "input_path": "inbox/g/n2.md",
         "trigger": "ambig", "context": "c", "question": "?",
     })
@@ -38,7 +38,7 @@ def test_collect_pending_finds_all_across_workers(tmp_path):
 
 
 def test_collect_pending_skips_malformed_and_warns(tmp_path, caplog):
-    w1 = tmp_path / "workers" / "w001"
+    w1 = tmp_path / "workers" / "w0001"
     (w1 / "pending").mkdir(parents=True)
     (w1 / "pending" / "broken.json").write_text("{not json")
     with caplog.at_level(logging.WARNING, logger="rufino.engine.process.batch.qa_pending"):
@@ -48,7 +48,7 @@ def test_collect_pending_skips_malformed_and_warns(tmp_path, caplog):
 
 
 def test_collect_pending_warns_on_missing_required_key(tmp_path, caplog):
-    w1 = tmp_path / "workers" / "w001"
+    w1 = tmp_path / "workers" / "w0001"
     (w1 / "pending").mkdir(parents=True)
     (w1 / "pending" / "incomplete.json").write_text(json.dumps(
         {"origin": "process-batch"}  # missing run_id, worker_id, etc.
@@ -63,7 +63,7 @@ def test_write_questions_creates_question_files(tmp_path):
     vault = tmp_path / "vault"
     (vault / "questions").mkdir(parents=True)
     pendings = [PendingQA(
-        origin="process-batch", run_id="r1", worker_id="w001",
+        origin="process-batch", run_id="r1", worker_id="w0001",
         pending_note="n1", input_path="inbox/g/n1.md",
         trigger="ambig_materia", context="some ctx",
         question="What is the materia?",
@@ -87,7 +87,7 @@ def test_write_questions_creates_question_files(tmp_path):
 def test_write_questions_yaml_handles_special_chars_in_context(tmp_path):
     vault = tmp_path / "vault"
     pendings = [PendingQA(
-        origin="process-batch", run_id="r1", worker_id="w001",
+        origin="process-batch", run_id="r1", worker_id="w0001",
         pending_note="n1", input_path="inbox/g/n1.md",
         trigger="ambig", context="line1: weird #stuff\nline2 'quotes'",
         question="?",
@@ -103,7 +103,7 @@ def test_write_questions_yaml_handles_special_chars_in_context(tmp_path):
 def test_write_questions_rejects_traversal_in_pending_note(tmp_path, caplog):
     vault = tmp_path / "vault"
     pendings = [PendingQA(
-        origin="process-batch", run_id="r1", worker_id="w001",
+        origin="process-batch", run_id="r1", worker_id="w0001",
         pending_note="../escape", input_path="inbox/g/x.md",
         trigger="t", context="c", question="?",
     )]
@@ -119,12 +119,12 @@ def test_write_questions_skips_existing_with_filled_answer(tmp_path, caplog):
     vault = tmp_path / "vault"
     qdir = vault / "questions"
     qdir.mkdir(parents=True)
-    existing = qdir / "r1-w001-n1.md"
+    existing = qdir / "r1-w0001-n1.md"
     existing.write_text(
         "---\norigin: process-batch\npending_note: n1\n---\n# old?\n\nanswer: yes-already\n"
     )
     pendings = [PendingQA(
-        origin="process-batch", run_id="r1", worker_id="w001",
+        origin="process-batch", run_id="r1", worker_id="w0001",
         pending_note="n1", input_path="inbox/g/n1.md",
         trigger="t", context="c", question="?",
     )]
@@ -141,12 +141,12 @@ def test_write_questions_overwrites_existing_with_empty_answer(tmp_path):
     vault = tmp_path / "vault"
     qdir = vault / "questions"
     qdir.mkdir(parents=True)
-    existing = qdir / "r1-w001-n1.md"
+    existing = qdir / "r1-w0001-n1.md"
     existing.write_text(
         "---\norigin: process-batch\npending_note: n1\n---\n# old?\n\nanswer: \n"
     )
     pendings = [PendingQA(
-        origin="process-batch", run_id="r1", worker_id="w001",
+        origin="process-batch", run_id="r1", worker_id="w0001",
         pending_note="n1", input_path="inbox/g/n1.md",
         trigger="t", context="new ctx", question="new?",
     )]
@@ -160,7 +160,7 @@ def _pq(**overrides) -> PendingQA:
     base = dict(
         origin="process-batch",
         run_id="r1",
-        worker_id="w001",
+        worker_id="w0001",
         pending_note="n1",
         input_path="inbox/g/n1.md",
         trigger="t",
@@ -180,7 +180,7 @@ def test_write_questions_continues_after_invalid_slug(tmp_path):
     ]
     result = write_questions_to_vault(pending, vault)
 
-    assert (vault / "questions" / "r1-w001-good.md").exists()
+    assert (vault / "questions" / "r1-w0001-good.md").exists()
     assert len(result.failed) == 1
     assert "escape" in str(result.failed[0])
     assert len(result.written) == 1
@@ -191,7 +191,7 @@ def test_existing_answer_filled_does_not_crash_on_bad_frontmatter(tmp_path):
     vault = tmp_path / "vault"
     qdir = vault / "questions"
     qdir.mkdir(parents=True)
-    existing = qdir / "r1-w001-x.md"
+    existing = qdir / "r1-w0001-x.md"
     existing.write_text("---\nfoo: : :\n---\nanswer: stuff\n", encoding="utf-8")
 
     pendings = [_pq(pending_note="x")]
@@ -211,7 +211,7 @@ def test_answer_detection_uses_frontmatter_not_body_substring(tmp_path):
     vault = tmp_path / "vault"
     qdir = vault / "questions"
     qdir.mkdir(parents=True)
-    existing = qdir / "r1-w001-x.md"
+    existing = qdir / "r1-w0001-x.md"
     existing.write_text(
         "---\norigin: process-batch\npending_note: x\nanswer: \n---\n"
         "# Question\n\nanswer: this-is-quoted-text-in-the-body-not-an-answer\n",
@@ -228,10 +228,10 @@ def test_answer_detection_uses_frontmatter_not_body_substring(tmp_path):
 
 def test_collect_pending_rejects_non_string_pending_note(tmp_path, caplog):
     """M6: an LLM emitting a numeric pending_note is rejected cleanly."""
-    workers = tmp_path / "workers" / "w001" / "pending"
+    workers = tmp_path / "workers" / "w0001" / "pending"
     workers.mkdir(parents=True)
     (workers / "x.json").write_text(json.dumps({
-        "origin": "process-batch", "run_id": "r1", "worker_id": "w001",
+        "origin": "process-batch", "run_id": "r1", "worker_id": "w0001",
         "pending_note": 42, "input_path": "inbox/g/x.md",
         "trigger": "t", "context": "c", "question": "?",
     }), encoding="utf-8")
@@ -258,4 +258,4 @@ def test_question_writes_are_atomic(tmp_path, monkeypatch):
     write_questions_to_vault(pendings, vault)
     # At least one atomic replace happened, targeting the question file.
     assert captured
-    assert any(p.name == "r1-w001-x.md" for p in captured)
+    assert any(p.name == "r1-w0001-x.md" for p in captured)

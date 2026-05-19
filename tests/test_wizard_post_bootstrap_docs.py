@@ -8,9 +8,37 @@ SPEC = {
     "vertical_name": "facultad",
     "patterns": ["long_documents_extraction"],
     "entities": ["apunte_clase", "materia"],
-    "sources": [{"adapter_name": "drive-pdfs", "output_mode": "import_raw"}],
-    "processing": [{"adapter_name": "apunte-clase", "note_type": "apunte_clase"}],
-    "outputs": [{"adapter_name": "digest-semanal", "cron": "0 18 * * 5"}],
+    "sources": [{
+        "adapter_name": "drive-pdfs",
+        "source_name": "gdrive",
+        "output_mode": "import_raw",
+        "schedule": None,
+        "auth": {"type": "none"},
+        "target_inbox": "inbox/cufona/",
+        "process_with": "apunte-clase",
+        "trigger": "immediate",
+    }],
+    "processing": [{
+        "adapter_name": "apunte-clase",
+        "note_type": "apunte_clase",
+        "applies_when": {"source_dir": "inbox/"},
+        "llm": "sonnet",
+        "output_schema": {"required": {"title": "string"}, "optional": {}},
+        "triple_vocabulary": ["tema-de"],
+        "tag_axes": [{"axis": "materia", "format": "materia/<slug>"}],
+        "destination_path": "apuntes/{slug}.md",
+        "qa_triggers": [],
+        "context_injectors": [],
+        "batch_size": 10,
+        "prompt_instructions": "# Procesá apuntes\n",
+    }],
+    "outputs": [{
+        "adapter_name": "digest-semanal",
+        "trigger": {"type": "cron", "expression": "0 18 * * 5"},
+        "query": [{"name": "all", "expression": "tag:apunte"}],
+        "delivery": [{"channel": "file", "path": "digests/{date}.md"}],
+        "template_body": "# Digest semanal\n",
+    }],
     "vocabulary": {
         "apunte_clase": "apuntes/<materia>/<YYYY-MM-DD>-<slug>.md",
         "materia": "materias/<slug>.md",
@@ -37,6 +65,14 @@ def test_readme_mentions_vertical_name():
     spec = validate_spec(SPEC)
     readme = render_user_readme(spec)
     assert "facultad" in readme
+
+
+def test_readme_renders_cron_suffix_for_outputs():
+    """The cron expression must surface in the user-facing README so the
+    reader knows when each digest fires. MappingProxy guard regression."""
+    spec = validate_spec(SPEC)
+    readme = render_user_readme(spec)
+    assert "0 18 * * 5" in readme
 
 
 def test_readme_handles_no_outputs():

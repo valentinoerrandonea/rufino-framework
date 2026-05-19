@@ -30,12 +30,12 @@ destination_path: "apuntes/{slug}.md"
 def _setup_pending_question(vault: Path, run_id: str = "r1") -> Path:
     qd = vault / "questions"
     qd.mkdir(parents=True)
-    qf = qd / f"{run_id}-w001-n1.md"
+    qf = qd / f"{run_id}-w0001-n1.md"
     qf.write_text(
         "---\n"
         "origin: process-batch\n"
         f"run_id: {run_id}\n"
-        "worker_id: w001\n"
+        "worker_id: w0001\n"
         "pending_note: n1\n"
         "input_path: inbox/g/n1.md\n"
         "trigger: ambig\n"
@@ -51,7 +51,7 @@ def _setup_run_dir(vault: Path, run_id: str = "r1") -> Path:
     rd = vault / ".rufino" / "runs" / run_id
     (rd / "inbox" / "g").mkdir(parents=True)
     (rd / "inbox" / "g" / "n1.md").write_text("# n\n")
-    (rd / "workers" / "w001" / "pending").mkdir(parents=True)
+    (rd / "workers" / "w0001" / "pending").mkdir(parents=True)
     (rd / "plan.json").write_text(json.dumps({
         "run_id": run_id,
         "adapter_dir": str(rd.parent.parent.parent / "_adapter"),
@@ -89,12 +89,12 @@ def _seed_pending_qa(tmp_path: Path, run_id: str = "r1") -> tuple[Path, Path, Pa
 
     qd = vault / "questions"
     qd.mkdir(parents=True, exist_ok=True)
-    qf = qd / f"{run_id}-w001-n1.md"
+    qf = qd / f"{run_id}-w0001-n1.md"
     qf.write_text(
         "---\n"
         "origin: process-batch\n"
         f"run_id: {run_id}\n"
-        "worker_id: w001\n"
+        "worker_id: w0001\n"
         "pending_note: n1\n"
         "input_path: inbox/g/n1.md\n"
         "trigger: ambig\n"
@@ -159,7 +159,7 @@ def test_qa_resume_rejects_malicious_run_id(tmp_path):
         "---\n"
         "origin: process-batch\n"
         "run_id: ../../../etc\n"
-        "worker_id: w001\n"
+        "worker_id: w0001\n"
         "pending_note: x\n"
         "trigger: t\n"
         "context: c\n"
@@ -191,7 +191,7 @@ def test_qa_resume_rejects_pure_dot_identifiers(tmp_path, field, value):
     fm = {
         "origin": "process-batch",
         "run_id": "valid-run",
-        "worker_id": "w001",
+        "worker_id": "w0001",
         "pending_note": "valid",
         "trigger": "t",
         "context": "c",

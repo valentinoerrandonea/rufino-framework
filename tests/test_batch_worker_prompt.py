@@ -40,7 +40,7 @@ def test_prompt_contains_all_three_blocks(tmp_path):
     notes = [tmp_path / "inbox" / "math" / "n01.md"]
     notes[0].parent.mkdir(parents=True)
     notes[0].write_text("# n\n")
-    assignment = WorkerAssignment(worker_id="w001", group="math", notes=tuple(notes))
+    assignment = WorkerAssignment(worker_id="w0001", group="math", notes=tuple(notes))
     staging_dir = tmp_path / "staging"
     staging_dir.mkdir()
 
@@ -72,7 +72,7 @@ def test_prompt_includes_top_concepts_when_provided(tmp_path):
     manifest = parse_worker_manifest(_MANIFEST)
     notes = [tmp_path / "n01.md"]
     notes[0].write_text("# n\n")
-    assignment = WorkerAssignment(worker_id="w001", group="math", notes=tuple(notes))
+    assignment = WorkerAssignment(worker_id="w0001", group="math", notes=tuple(notes))
 
     prompt = build_worker_system_prompt(
         manifest=manifest,

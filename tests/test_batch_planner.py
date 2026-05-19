@@ -58,7 +58,7 @@ def test_worker_ids_are_unique_and_stable(tmp_path):
         run_id="r1", adapter_dir="/a", batch_size=10,
     )
     ids = [w.worker_id for w in plan.workers]
-    assert ids == ["w001", "w002", "w003"]
+    assert ids == ["w0001", "w0002", "w0003"]
 
 
 def test_empty_corpus_yields_empty_plan(tmp_path):
@@ -77,5 +77,5 @@ def test_plan_serialises_to_json(tmp_path):
     assert parsed["run_id"] == "r1"
     assert parsed["adapter_dir"] == "/a"
     assert len(parsed["workers"]) == 1
-    assert parsed["workers"][0]["worker_id"] == "w001"
+    assert parsed["workers"][0]["worker_id"] == "w0001"
     assert len(parsed["workers"][0]["notes"]) == 2
