@@ -174,3 +174,56 @@ def test_filter_other_entries_drops_only_targeted_marker():
     assert "rufino-ingest-a" not in out
     assert "rufino-ingest-b" in out
     assert "unrelated" in out
+
+
+def test_uninstall_does_not_remove_prefix_sibling(tmp_path: Path):
+    """Regression: C2 — uninstall job_id='foo' no debe borrar 'foobar'."""
+    fc = FakeCrontab(initial="")
+    backend = CronBackend(runner=fc)
+    backend.install(
+        job_id="foo", schedule="* * * * *", cmd="echo a",
+        log_path=str(tmp_path / "a.log"),
+    )
+    backend.install(
+        job_id="foobar", schedule="* * * * *", cmd="echo b",
+        log_path=str(tmp_path / "b.log"),
+    )
+    assert sorted(backend.list_jobs()) == ["foo", "foobar"]
+
+    backend.uninstall(job_id="foo")
+    assert backend.list_jobs() == ["foobar"]
+    assert "rufino-job:foobar" in fc.content
+
+
+def test_list_jobs_ignores_marker_inside_cmd_body():
+    """Regression: list_jobs solo debe extraer el marker al final de la línea."""
+    fake_crontab = (
+        "* * * * * echo '# rufino-job:fake' >> /tmp/x 2>&1 # rufino-job:real\n"
+    )
+    fc = FakeCrontab(initial=fake_crontab)
+    backend = CronBackend(runner=fc)
+    assert backend.list_jobs() == ["real"]
+
+
+def test_filter_other_entries_handles_marker_inside_cmd():
+    """_filter_other_entries debe usar el marker al final de la línea, no substring."""
+    content = (
+        "* * * * * echo '# rufino-job:other' >> /tmp/x 2>&1 # rufino-job:real\n"
+        "0 5 * * * /bin/echo unrelated\n"
+    )
+    # Uninstall 'other' (only in cmd body) — debe ser noop.
+    out = _filter_other_entries(content, job_id="other")
+    assert out == content
+
+
+def test_uninstall_keeps_only_exact_match_marker(tmp_path: Path):
+    """job_id 'a' no debe borrar entradas 'aa', 'ab', 'a-b'."""
+    fc = FakeCrontab(initial="")
+    backend = CronBackend(runner=fc)
+    for jid in ("a", "aa", "ab", "a-b", "a.b"):
+        backend.install(
+            job_id=jid, schedule="* * * * *", cmd="echo x",
+            log_path=str(tmp_path / f"{jid}.log"),
+        )
+    backend.uninstall(job_id="a")
+    assert sorted(backend.list_jobs()) == ["a-b", "a.b", "aa", "ab"]

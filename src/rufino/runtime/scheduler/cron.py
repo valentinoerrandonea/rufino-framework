@@ -54,10 +54,14 @@ class CronBackend:
         current = self._read_crontab()
         jobs: list[str] = []
         for line in current.splitlines():
-            marker_idx = line.find(_MARKER_PREFIX)
-            if marker_idx == -1:
+            body = line.rstrip()
+            # Sólo contamos el marker que el writer escribió al final de la
+            # línea. Un marker que aparece dentro del cmd (e.g. en una cadena
+            # quoteada) no es nuestro.
+            idx = body.rfind(_MARKER_PREFIX)
+            if idx == -1:
                 continue
-            jobs.append(line[marker_idx + len(_MARKER_PREFIX):].strip())
+            jobs.append(body[idx + len(_MARKER_PREFIX):].strip())
         return sorted(jobs)
 
     def _read_crontab(self) -> str:
@@ -86,11 +90,15 @@ def _entry_for_job(
 
 
 def _filter_other_entries(content: str, *, job_id: str) -> str:
-    marker = f"{_MARKER_PREFIX}{job_id}"
-    kept = [
-        line for line in content.splitlines(keepends=True)
-        if marker not in line
-    ]
+    target = f"{_MARKER_PREFIX}{job_id}"
+    kept: list[str] = []
+    for line in content.splitlines(keepends=True):
+        body = line.rstrip("\n").rstrip("\r")
+        idx = body.rfind(_MARKER_PREFIX)
+        line_job = body[idx:].strip() if idx != -1 else ""
+        if line_job == target:
+            continue
+        kept.append(line)
     out = "".join(kept)
     if out and not out.endswith("\n"):
         out += "\n"
