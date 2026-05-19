@@ -140,3 +140,71 @@ def test_disable_embeddings_works_without_state_dir_flag(tmp_path: Path, monkeyp
     slug = compute_vault_slug(vault)
     yaml_path = fake_state / "vaults" / f"{slug}.yaml"
     assert yaml_path.exists()
+
+
+def test_enable_embeddings_rolls_back_partial_sqlite_on_failure(tmp_path: Path) -> None:
+    """F11 — si rebuild_indices escribe sqlite parcial y luego raise, el rollback
+    debe limpiar el _meta/embeddings.sqlite para que un re-enable no duplique.
+    """
+    vault = tmp_path / "v"
+    vault.mkdir()
+    state = tmp_path / "state"
+    meta = vault / "_meta"
+    meta.mkdir()
+
+    def fake_rebuild(self):
+        # Simula que rebuild escribió un sqlite parcial antes de fallar.
+        (meta / "embeddings.sqlite").write_bytes(b"PARTIAL")
+        (meta / "graph.sqlite").write_bytes(b"PARTIAL")
+        raise RuntimeError("ollama dropped mid-rebuild")
+
+    with patch(
+        "rufino.runtime.embedder.detect.detect_ollama",
+        return_value=_ok_detect(),
+    ), patch(
+        "rufino.cli.QueryLayer.rebuild_indices",
+        fake_rebuild,
+    ):
+        result = CliRunner().invoke(
+            cli,
+            ["enable-embeddings", "--vault", str(vault), "--state-dir", str(state)],
+        )
+    assert result.exit_code != 0
+    # State no escrito.
+    assert not (state / "vaults").exists()
+    # Sqlite parcial limpiado.
+    assert not (meta / "embeddings.sqlite").exists()
+    assert not (meta / "graph.sqlite").exists()
+
+
+def test_enable_embeddings_rolls_back_when_state_write_fails(tmp_path: Path) -> None:
+    """F11 — si write_vault_state crashea después de rebuild, el sqlite y graph
+    nuevos deben revertirse al snapshot previo (o limpiarse si no había)."""
+    vault = tmp_path / "v"
+    vault.mkdir()
+    state = tmp_path / "state"
+    meta = vault / "_meta"
+    meta.mkdir()
+
+    def fake_rebuild(self):
+        (meta / "embeddings.sqlite").write_bytes(b"NEW")
+        (meta / "graph.sqlite").write_bytes(b"NEW")
+
+    def boom_write(**kwargs):
+        raise OSError("disk full")
+
+    with patch(
+        "rufino.runtime.embedder.detect.detect_ollama",
+        return_value=_ok_detect(),
+    ), patch(
+        "rufino.cli.QueryLayer.rebuild_indices",
+        fake_rebuild,
+    ), patch("rufino.cli.write_vault_state", boom_write):
+        result = CliRunner().invoke(
+            cli,
+            ["enable-embeddings", "--vault", str(vault), "--state-dir", str(state)],
+        )
+    assert result.exit_code != 0
+    # No quedaron sqlites nuevos (no había snapshot previo, así que se borran).
+    assert not (meta / "embeddings.sqlite").exists()
+    assert not (meta / "graph.sqlite").exists()

@@ -352,17 +352,33 @@ def enable_embeddings_cmd(vault_root: Path, state_dir: Path | None, model: str) 
     vault_root = vault_root.expanduser().resolve()
     state_dir = state_dir.expanduser().resolve()
     slug = compute_vault_slug(vault_root)
-    # Build the index BEFORE marking embeddings enabled in state. If
-    # rebuild_indices crashes (Ollama mid-request, disk full, model
-    # uninstalled between detect and embed), the per-vault state stays in
-    # its prior value — semantic queries continue to NoopEmbedder instead
-    # of pointing at a half-built index.
+    # Snapshot pre-existing sqlite/graph indices so a mid-rebuild crash
+    # (Ollama dropping mid-request, disk full, etc.) doesn't leave the
+    # vault with a half-built index and embeddings.enabled=true mismatched.
+    meta_dir = vault_root / "_meta"
+    snapshots: dict[Path, bytes | None] = {}
+    for fname in ("embeddings.sqlite", "graph.sqlite"):
+        p = meta_dir / fname
+        snapshots[p] = p.read_bytes() if p.exists() else None
+
+    def _restore_indices() -> None:
+        for p, prior in snapshots.items():
+            if prior is None:
+                if p.exists():
+                    p.unlink()
+            else:
+                p.write_bytes(prior)
+
     ql = QueryLayer(vault_root=vault_root, embedder=OllamaEmbedder(model=model))
-    ql.rebuild_indices()
-    write_vault_state(
-        vault_slug=slug, state_dir=state_dir,
-        embeddings_enabled=True, backend="ollama", model=model,
-    )
+    try:
+        ql.rebuild_indices()
+        write_vault_state(
+            vault_slug=slug, state_dir=state_dir,
+            embeddings_enabled=True, backend="ollama", model=model,
+        )
+    except Exception:
+        _restore_indices()
+        raise
     click.echo(f"Embeddings enabled for {slug} (model={model})")
 
 
