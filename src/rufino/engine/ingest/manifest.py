@@ -66,13 +66,40 @@ def parse_ingest_manifest(yaml_text: str) -> IngestAdapterManifest:
             if f not in raw:
                 raise ManifestParseError(f"emit_fact requires field {f!r}")
         dest = raw["destination"]
+        # Tolerate the legacy shape where destination is a flat string path
+        # (pre-v0.2.1 wizards). New manifests use a mapping with 'facts'
+        # (required) and 'raw' (optional).
+        if isinstance(dest, str):
+            destination_facts: str | None = dest
+            destination_raw: str | None = None
+        elif isinstance(dest, dict):
+            destination_facts = dest.get("facts")
+            destination_raw = dest.get("raw")
+            if not isinstance(destination_facts, str):
+                raise ManifestParseError(
+                    "destination.facts must be a string path"
+                )
+            if destination_raw is not None and not isinstance(destination_raw, str):
+                raise ManifestParseError(
+                    "destination.raw must be a string path if present"
+                )
+        else:
+            raise ManifestParseError(
+                "destination must be a string or a mapping with "
+                f"'facts'/'raw'; got {type(dest).__name__}"
+            )
+        dedup_by = raw["dedup_by"]
+        if not isinstance(dedup_by, str):
+            raise ManifestParseError(
+                "dedup_by must be a string field name"
+            )
         return IngestAdapterManifest(
             **common,
             emits=tuple(raw["emits"]),
             fact_schema=raw["fact_schema"],
-            destination_facts=dest.get("facts"),
-            destination_raw=dest.get("raw"),
-            dedup_by=raw["dedup_by"],
+            destination_facts=destination_facts,
+            destination_raw=destination_raw,
+            dedup_by=dedup_by,
         )
 
     if mode == "import_raw":

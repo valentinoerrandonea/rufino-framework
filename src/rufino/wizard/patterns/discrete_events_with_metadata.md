@@ -11,7 +11,7 @@
 - evento, transacción, sesión, log
 
 ## Combinación de primitives
-- Ingest con `output_mode: emit_fact` (API/CSV/manual)
+- Ingest con `output_mode: emit_facts` (API/CSV/manual)
 - Process opcional (categorización)
 - Output digest periódico
 

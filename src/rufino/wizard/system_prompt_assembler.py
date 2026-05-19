@@ -21,10 +21,33 @@ el vault adaptado al vertical.
 ## 3. Conocimiento del runtime
 Las 6 primitives del framework: Ingest, Process, Output, Query, Memory loop, Q&A loop.
 Los 4 shapes: Worker adapter, Service primitive, Vertical config, Question template.
-Los 3 output modes del Ingest: emit_fact, import_raw, emit_augmented.
+Los 3 output modes del Ingest: `emit_facts`, `import_raw`, `emit_augmented`
+(el engine alias `emit_facts` → `emit_fact` internamente, pero la spec
+del wizard usa `emit_facts` en plural).
 Hooks de código: transform.py opcional (sandbox).
 Helpers built-in: validate_frontmatter, extract_triples, register_persons,
 promote_concepts, query_vault, ask_user.
+
+### Shape de cada Ingest source en la spec
+
+```yaml
+adapter_name: <kebab-case>
+source_name: <slug>
+output_mode: emit_facts | import_raw | emit_augmented
+auth: { ... }
+schedule: "m h dom mon dow"  # o null para on-demand
+# === emit_facts ===
+emits: [event_type, ...]
+fact_schema: { event_type: { field: type, ... } }
+destination: { facts: "_data/facts.jsonl", raw: "_data/raw.jsonl" }   # facts requerido, raw opcional
+dedup_by: "id"                                                         # string, el field de cada record a usar como key
+# === import_raw ===
+target_inbox: "inbox/path/"
+process_with: "<process-adapter-name>"
+trigger: "immediate" | "defer"
+# === emit_augmented ===
+process_inline_with: "<process-adapter-name>"
+```
 
 ## 4. Patterns iniciales
 

@@ -198,3 +198,61 @@ def test_validate_spec_rejects_vocabulary_key_with_uppercase_when_entity_valid()
     bad["entities"] = list(VALID_SPEC["entities"]) + ["BadKey"]
     with pytest.raises(SpecError):
         validate_spec(bad)
+
+
+def _emit_facts_spec_dict() -> dict:
+    return {
+        "vertical_name": "v",
+        "patterns": ["discrete_events_with_metadata"],
+        "entities": [],
+        "sources": [{
+            "adapter_name": "a",
+            "source_name": "x",
+            "output_mode": "emit_facts",
+            "auth": {},
+            "emits": ["meeting"],
+            "fact_schema": {"meeting": {}},
+            "destination": {"facts": "facts.jsonl"},
+            "dedup_by": "id",
+        }],
+        "processing": [],
+        "outputs": [],
+        "vocabulary": {},
+    }
+
+
+def test_emit_facts_requires_destination_mapping():
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["destination"] = "facts.jsonl"  # string — debe ser rechazada
+    with pytest.raises(SpecError, match="destination"):
+        validate_spec(bad)
+
+
+def test_emit_facts_requires_facts_key_in_destination():
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["destination"] = {"raw": "raw.jsonl"}  # falta 'facts'
+    with pytest.raises(SpecError, match="facts"):
+        validate_spec(bad)
+
+
+def test_emit_facts_dedup_by_must_be_string():
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["dedup_by"] = ["id", "name"]  # list, debe ser str
+    with pytest.raises(SpecError, match="dedup_by"):
+        validate_spec(bad)
+
+
+def test_emit_facts_destination_raw_must_be_string_if_present():
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["destination"] = {"facts": "facts.jsonl", "raw": ["raw.jsonl"]}
+    with pytest.raises(SpecError, match="raw"):
+        validate_spec(bad)
+
+
+def test_emit_facts_valid_spec_passes():
+    """Sanity: una spec emit_facts con shape correcta es aceptada."""
+    ok = _emit_facts_spec_dict()
+    spec = validate_spec(ok)
+    src = spec.sources[0]
+    assert src.dedup_by == "id"
+    assert src.destination["facts"] == "facts.jsonl"

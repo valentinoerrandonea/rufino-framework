@@ -10,7 +10,7 @@
 - (varias entidades agregadas en el tiempo)
 
 ## Combinación de primitives
-- Múltiples Ingest con `output_mode: emit_fact`
+- Múltiples Ingest con `output_mode: emit_facts`
 - Output bio mensual + year-review + digest semanal
 
 ## Casos

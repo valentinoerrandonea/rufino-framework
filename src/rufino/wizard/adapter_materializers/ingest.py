@@ -84,9 +84,9 @@ def _spec_to_manifest_dict(spec: IngestSpec) -> dict:
     if spec.fact_schema is not None:
         d["fact_schema"] = _to_plain(spec.fact_schema)
     if spec.destination is not None:
-        d["destination"] = spec.destination
+        d["destination"] = _to_plain(spec.destination)
     if spec.dedup_by is not None:
-        d["dedup_by"] = list(spec.dedup_by)
+        d["dedup_by"] = spec.dedup_by
     if spec.process_inline_with is not None:
         d["process_inline_with"] = spec.process_inline_with
     return d

@@ -41,8 +41,8 @@ class IngestSpec:
     # emit_facts
     emits: tuple[str, ...] | None = None
     fact_schema: Mapping[str, Any] | None = None
-    destination: str | None = None
-    dedup_by: tuple[str, ...] | None = None
+    destination: Mapping[str, Any] | None = None
+    dedup_by: str | None = None
     # emit_augmented
     process_inline_with: str | None = None
 
@@ -189,11 +189,19 @@ def _validate_ingest(entry: Any, *, idx: int) -> IngestSpec:
         kwargs["fact_schema"] = _freeze_deep(
             _require_mapping(entry, "fact_schema", where=where)
         )
-        kwargs["destination"] = _require_str(entry, "destination", where=where)
-        dedup_by = entry.get("dedup_by", [])
-        if not isinstance(dedup_by, list):
-            raise SpecError(f"{where}: dedup_by must be a list")
-        kwargs["dedup_by"] = tuple(dedup_by)
+        destination = _require_mapping(entry, "destination", where=where)
+        facts = destination.get("facts")
+        if not isinstance(facts, str) or not facts:
+            raise SpecError(
+                f"{where}: destination.facts must be a non-empty string path"
+            )
+        raw_dest = destination.get("raw")
+        if raw_dest is not None and not isinstance(raw_dest, str):
+            raise SpecError(
+                f"{where}: destination.raw must be a string path if present"
+            )
+        kwargs["destination"] = _freeze_deep(destination)
+        kwargs["dedup_by"] = _require_str(entry, "dedup_by", where=where)
     elif output_mode == "emit_augmented":
         kwargs["process_inline_with"] = _require_str(
             entry, "process_inline_with", where=where,
