@@ -202,3 +202,55 @@ def test_build_plist_hour_pin_with_minute_star():
     assert "<key>Hour</key>" in xml
     assert "<integer>22</integer>" in xml
     assert "<key>Minute</key>" not in xml
+
+
+def test_install_failed_reinstall_restores_prior_schedule(tmp_path: Path) -> None:
+    """F10 — si bootstrap del re-install falla, el plist viejo y su carga deben
+    quedar restauradas. Antes: se hacía bootout del viejo, se sobreescribía el
+    plist con el nuevo, fallaba bootstrap → el user perdía su schedule.
+    """
+    # Caso 1: instalar v1 OK.
+    runner = FakeRunner()
+    backend = LaunchdBackend(launchagents_dir=tmp_path, runner=runner)
+    backend.install(
+        job_id="rufino-ingest-x", schedule="0 22 * * *",
+        cmd="echo v1", log_path="/tmp/x.log",
+    )
+    v1_plist = (tmp_path / "rufino-ingest-x.plist").read_text()
+    assert "v1" in v1_plist
+
+    # Caso 2: re-instalar v2 con bootstrap del nuevo mockeado para fallar.
+    # Tras el fallo, el plist en disco debe ser el v1 (restaurado) y debe
+    # haberse hecho re-bootstrap del v1 para volver a cargarlo.
+    runner_fail = FakeRunner(fail_bootstrap=True)
+    backend2 = LaunchdBackend(launchagents_dir=tmp_path, runner=runner_fail)
+    with pytest.raises(RuntimeError, match="bootstrap"):
+        backend2.install(
+            job_id="rufino-ingest-x", schedule="0 22 * * *",
+            cmd="echo v2", log_path="/tmp/x.log",
+        )
+
+    restored = (tmp_path / "rufino-ingest-x.plist")
+    assert restored.exists(), "el plist v1 debe haberse restaurado en disco"
+    assert "v1" in restored.read_text() and "v2" not in restored.read_text()
+
+
+def test_install_atomic_write_does_not_clobber_existing_on_render_error(tmp_path: Path) -> None:
+    """Si un render falla (NotImplementedError) durante un re-install, el plist
+    viejo en disco no debe haber sido sobrescrito todavía."""
+    runner = FakeRunner()
+    backend = LaunchdBackend(launchagents_dir=tmp_path, runner=runner)
+    backend.install(
+        job_id="rufino-ingest-x", schedule="0 22 * * *",
+        cmd="echo v1", log_path="/tmp/x.log",
+    )
+    v1_plist = (tmp_path / "rufino-ingest-x.plist").read_text()
+
+    # Try a re-install with an unsupported pattern: render falla.
+    with pytest.raises(NotImplementedError):
+        backend.install(
+            job_id="rufino-ingest-x", schedule="*/15 */6 * * *",
+            cmd="echo v2", log_path="/tmp/x.log",
+        )
+    # v1 debe seguir igual.
+    assert (tmp_path / "rufino-ingest-x.plist").read_text() == v1_plist

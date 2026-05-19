@@ -37,11 +37,16 @@ class LaunchdBackend:
         self, *, job_id: str, schedule: str, cmd: str, log_path: str
     ) -> None:
         validate_cron(schedule)
+        # Render BEFORE we touch anything on disk or in launchctl. If the
+        # render raises (e.g. NotImplementedError on an unsupported pattern)
+        # the existing plist and its loaded job stay intact.
         plist_xml = _build_plist(
             job_id=job_id, schedule=schedule, cmd=cmd, log_path=log_path
         )
         self.launchagents_dir.mkdir(parents=True, exist_ok=True)
         plist_path = self.launchagents_dir / f"{job_id}.plist"
+        prior_content = plist_path.read_text(encoding="utf-8") if plist_path.exists() else None
+
         plist_path.write_text(plist_xml, encoding="utf-8")
         uid = os.getuid()
         # Idempotent: bootout if already loaded (ignore failure — service may
@@ -51,7 +56,16 @@ class LaunchdBackend:
             ["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)]
         )
         if result.returncode != 0:
-            plist_path.unlink(missing_ok=True)
+            if prior_content is not None:
+                # Restore previous plist on disk and try to re-load it so
+                # the user stays on the prior schedule rather than ending
+                # up with NO scheduled job at all.
+                plist_path.write_text(prior_content, encoding="utf-8")
+                self.runner(
+                    ["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)]
+                )
+            else:
+                plist_path.unlink(missing_ok=True)
             raise RuntimeError(
                 f"launchctl bootstrap failed for {job_id}: "
                 f"exit={result.returncode} stderr={result.stderr!r}"
