@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -9,7 +8,10 @@ from click.testing import CliRunner
 from rufino.cli import cli
 
 
-FAKE_DIR = Path("tests/fixtures/fake_claude").resolve()
+@pytest.fixture(autouse=True)
+def _path_with_fake_claude(fake_claude_on_path):
+    """Autouse delegate to shared conftest fixture (FAKE_CLAUDE_DIR on PATH)."""
+    yield
 
 
 _ADAPTER_MANIFEST = """
@@ -106,7 +108,6 @@ def _seed_pending_qa(tmp_path: Path, run_id: str = "r1") -> tuple[Path, Path, Pa
 
 
 def test_qa_poll_archives_answered_question(tmp_path, monkeypatch):
-    monkeypatch.setenv("PATH", str(FAKE_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
 
     vault = tmp_path / "vault"
@@ -135,7 +136,6 @@ def test_qa_poll_archives_answered_question(tmp_path, monkeypatch):
 
 def test_qa_resume_lands_note_in_vault_canon(tmp_path, monkeypatch):
     """C1: after qa-poll, the augmented note must exist at destination_path."""
-    monkeypatch.setenv("PATH", str(FAKE_DIR) + os.pathsep + os.environ["PATH"])
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
     vault, run_dir, question_file = _seed_pending_qa(tmp_path)
 
