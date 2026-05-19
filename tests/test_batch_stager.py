@@ -1,16 +1,24 @@
+import importlib.util
 import shutil
 import zipfile
 from pathlib import Path
 
 import pytest
 
-pytest.importorskip("mammoth")
-pytest.importorskip("pptx")
-
 from rufino.engine.process.batch.errors import StagingError
 from rufino.engine.process.batch.stager import (
     StagedCorpus,
     stage_corpus,
+)
+
+
+_REQUIRES_MAMMOTH = pytest.mark.skipif(
+    importlib.util.find_spec("mammoth") is None,
+    reason="mammoth not installed",
+)
+_REQUIRES_PPTX = pytest.mark.skipif(
+    importlib.util.find_spec("pptx") is None,
+    reason="python-pptx not installed",
 )
 
 
@@ -79,6 +87,7 @@ def test_stage_pdf_passthrough_unchanged(tmp_path):
     assert out.read_bytes() == pdf_bytes
 
 
+@_REQUIRES_MAMMOTH
 def test_stage_docx_converted_to_md(tmp_path):
     fixture = Path("tests/fixtures/batch/hello.docx")
     src = tmp_path / "corpus"
@@ -94,6 +103,7 @@ def test_stage_docx_converted_to_md(tmp_path):
     assert not (run_dir / "inbox" / "lit" / "doc.docx").exists()
 
 
+@_REQUIRES_PPTX
 def test_stage_pptx_converted_to_md(tmp_path):
     fixture = Path("tests/fixtures/batch/hello.pptx")
     src = tmp_path / "corpus"
@@ -185,6 +195,7 @@ def test_stage_preserves_nested_subdirs_within_group(tmp_path):
     assert contents == {"ONE", "TWO"}
 
 
+@_REQUIRES_MAMMOTH
 def test_stage_rejects_collision_after_extension_normalization(tmp_path):
     """A .docx that converts to lesson.md and a sibling lesson.md must not silently merge."""
     source = tmp_path / "corpus"
