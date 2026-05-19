@@ -1,5 +1,8 @@
 import asyncio
 import json
+import shlex
+import shutil
+import sys
 from pathlib import Path
 
 import click
@@ -30,6 +33,24 @@ def _resolve_for_vault(vault_root: Path, state_dir: Path):
     return resolve_embedder(
         vault_slug=compute_vault_slug(vault_root), state_dir=state_dir,
     )
+
+
+def _scheduler_backend():
+    """Factory for the platform-appropriate scheduler backend.
+
+    Indirected through this helper so tests can `monkeypatch` it without
+    touching the underlying `runtime.scheduler` module.
+    """
+    from rufino.runtime.scheduler import get_backend
+    return get_backend()
+
+
+def _rufino_invocation() -> str:
+    """Return a shell-safe invocation string for the `rufino` CLI."""
+    rufino_bin = shutil.which("rufino")
+    if rufino_bin:
+        return shlex.quote(rufino_bin)
+    return f"{shlex.quote(sys.executable)} -m rufino"
 
 
 @click.group()
@@ -395,6 +416,8 @@ def bootstrap_cmd(dry_run: bool) -> None:
                 "Bash(rufino detect-embeddings:*),"
                 "Bash(rufino enable-embeddings:*),"
                 "Bash(rufino install-ingest:*),"
+                "Bash(rufino uninstall-ingest:*),"
+                "Bash(rufino list-ingests:*),"
                 "Read,Write"
             ),
             "--",  # end-of-options marker so --allowedTools doesn't slurp the prompt
@@ -523,3 +546,78 @@ def process_batch_cmd(
         f"ok={result.notes_ok} failed={result.notes_failed} "
         f"pending_qa={result.notes_pending_qa}"
     )
+
+
+def _ingest_job_id(vault_root: Path, adapter_name: str) -> str:
+    return f"rufino-ingest-{compute_vault_slug(vault_root)}-{adapter_name}"
+
+
+@cli.command(name="install-ingest")
+@click.argument("adapter_dir",
+                type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path),
+              help="Vault root")
+@click.option("--rufino-home", "rufino_home",
+              type=click.Path(path_type=Path), envvar="RUFINO_HOME",
+              default=None,
+              help="Rufino home directory (default: ~/.rufino)")
+def install_ingest_cmd(
+    adapter_dir: Path, vault_root: Path, rufino_home: Path | None
+) -> None:
+    """Install a scheduled ingest job from an Ingest adapter manifest."""
+    from rufino.engine.ingest.manifest import (
+        ManifestParseError, parse_ingest_manifest,
+    )
+    manifest_path = adapter_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        raise click.UsageError(
+            f"missing manifest.yaml in adapter {adapter_dir}"
+        )
+    try:
+        manifest = parse_ingest_manifest(manifest_path.read_text(encoding="utf-8"))
+    except ManifestParseError as e:
+        raise click.UsageError(f"invalid ingest manifest: {e}") from e
+
+    home = rufino_home or (Path.home() / ".rufino")
+    logs_dir = home / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    job_id = _ingest_job_id(vault_root, manifest.adapter_name)
+    log_path = str(logs_dir / f"{job_id}.log")
+    cmd = (
+        f"{_rufino_invocation()} ingest "
+        f"{shlex.quote(str(adapter_dir))} "
+        f"--vault {shlex.quote(str(vault_root))}"
+    )
+
+    backend = _scheduler_backend()
+    try:
+        backend.install(
+            job_id=job_id, schedule=manifest.schedule,
+            cmd=cmd, log_path=log_path,
+        )
+    except (ValueError, NotImplementedError) as e:
+        raise click.UsageError(f"could not install job: {e}") from e
+    click.echo(f"installed {job_id} (schedule: {manifest.schedule})")
+
+
+@cli.command(name="uninstall-ingest")
+@click.argument("adapter_name", type=str)
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path),
+              help="Vault root")
+def uninstall_ingest_cmd(adapter_name: str, vault_root: Path) -> None:
+    """Remove a scheduled ingest job by adapter name."""
+    job_id = _ingest_job_id(vault_root, adapter_name)
+    backend = _scheduler_backend()
+    backend.uninstall(job_id=job_id)
+    click.echo(f"uninstalled {job_id}")
+
+
+@cli.command(name="list-ingests")
+def list_ingests_cmd() -> None:
+    """List Rufino-installed ingest jobs."""
+    backend = _scheduler_backend()
+    for job in backend.list_jobs():
+        click.echo(job)
