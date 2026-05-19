@@ -50,6 +50,10 @@ which rufino       # → /Users/<vos>/.local/bin/rufino (o equivalente de pipx)
 rufino version     # → 0.0.3
 ```
 
+> `process-batch` requiere `mammoth` y `python-pptx` (declarados en
+> `pyproject.toml`). Si te aparece `ModuleNotFoundError`, reinstalá con
+> `./install.sh` o `pipx install -e .`.
+
 ## Primer bootstrap
 
 ```bash

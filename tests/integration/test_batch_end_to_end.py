@@ -6,6 +6,9 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("mammoth")
+pytest.importorskip("pptx")
+
 from rufino.engine.process.batch.runner import run_batch
 
 

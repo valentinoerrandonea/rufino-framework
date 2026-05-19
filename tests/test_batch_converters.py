@@ -4,6 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip("mammoth")
+pytest.importorskip("pptx")
+
 from rufino.engine.process.batch.converters import (
     convert_to_markdown,
     docx_to_md,
@@ -16,6 +19,31 @@ from rufino.engine.process.batch.errors import (
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "batch"
+
+
+def test_converters_module_importable_without_mammoth(monkeypatch):
+    """If mammoth is missing, importing converters must still succeed; only the
+    docx call should raise a clear error."""
+    import sys
+    monkeypatch.setitem(sys.modules, "mammoth", None)
+    # Reimport to simulate fresh import
+    if "rufino.engine.process.batch.converters" in sys.modules:
+        del sys.modules["rufino.engine.process.batch.converters"]
+    from rufino.engine.process.batch import converters  # must not raise
+    with pytest.raises(RuntimeError, match="mammoth is required"):
+        converters.convert_to_markdown(Path("x.docx"))
+
+
+def test_converters_module_importable_without_pptx(monkeypatch):
+    """If python-pptx is missing, importing converters must still succeed; only
+    the pptx call should raise a clear error."""
+    import sys
+    monkeypatch.setitem(sys.modules, "pptx", None)
+    if "rufino.engine.process.batch.converters" in sys.modules:
+        del sys.modules["rufino.engine.process.batch.converters"]
+    from rufino.engine.process.batch import converters  # must not raise
+    with pytest.raises(RuntimeError, match="python-pptx is required"):
+        converters.convert_to_markdown(Path("x.pptx"))
 
 
 def test_docx_to_md_extracts_text():

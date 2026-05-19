@@ -18,8 +18,20 @@ _log = logging.getLogger(__name__)
 
 
 def docx_to_md(path: Path) -> str:
-    """Convert a .docx file to markdown using mammoth."""
-    import mammoth
+    """Convert a .docx file to markdown using mammoth.
+
+    The ``mammoth`` dependency is imported lazily so the module itself remains
+    importable in a stripped-down environment; only callers that actually need
+    .docx conversion pay the cost (and see an error if the dep is missing).
+    """
+    try:
+        import mammoth  # noqa: WPS433  (lazy import is intentional)
+    except ImportError as e:
+        raise RuntimeError(
+            "mammoth is required for .docx conversion. "
+            "Install it (it is declared in pyproject.toml) via "
+            "`./install.sh` or `pipx install -e .` / `pip install -e .`."
+        ) from e
     try:
         with open(path, "rb") as fh:
             result = mammoth.convert_to_markdown(fh)
@@ -32,8 +44,20 @@ def docx_to_md(path: Path) -> str:
 
 
 def pptx_to_md(path: Path) -> str:
-    """Convert a .pptx file to markdown, one '## Slide N: title' section per slide."""
-    from pptx import Presentation
+    """Convert a .pptx file to markdown, one '## Slide N: title' section per slide.
+
+    The ``python-pptx`` dependency is imported lazily so the module itself
+    remains importable when the dep is absent; only callers that actually need
+    .pptx conversion pay the cost (and see an error if the dep is missing).
+    """
+    try:
+        from pptx import Presentation  # noqa: WPS433  (lazy import is intentional)
+    except ImportError as e:
+        raise RuntimeError(
+            "python-pptx is required for .pptx conversion. "
+            "Install it (it is declared in pyproject.toml) via "
+            "`./install.sh` or `pipx install -e .` / `pip install -e .`."
+        ) from e
     try:
         prs = Presentation(str(path))
     except Exception as e:
