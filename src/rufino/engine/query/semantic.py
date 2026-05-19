@@ -16,36 +16,49 @@ class EmbeddingProvider(Protocol):
 class SemanticBackend:
     """Semantic search via embeddings.
 
-    v1 uses cosine-similarity in pure Python over a SQLite-stored vector list.
-    sqlite-vec integration is a v1.1 optimization that doesn't change the API.
+    Vectors are persisted as ``json.dumps(list[float])`` in TEXT columns;
+    cosine similarity is computed in pure Python at query time (sqlite-vec
+    integration is on the roadmap as a perf optimization).
+
+    The sqlite file is created lazily on the first ``rebuild_index`` or
+    ``search`` call. With a ``NoopEmbedder`` (embeddings disabled for this
+    vault) the connection is never opened, so a vault that never enables
+    semantic search has no phantom ``_meta/embeddings.sqlite`` polluting it.
     """
     vault_root: Path
     embedder: EmbeddingProvider
 
     def __post_init__(self) -> None:
         self._db_path = self.vault_root / "_meta" / "embeddings.sqlite"
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self._db_path)
-        self._conn.execute(
-            "CREATE TABLE IF NOT EXISTS notes "
-            "(rel_path TEXT PRIMARY KEY, vector TEXT)"
-        )
+        self._conn: sqlite3.Connection | None = None
+
+    def _conn_lazy(self) -> sqlite3.Connection:
+        if self._conn is None:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(self._db_path)
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS notes "
+                "(rel_path TEXT PRIMARY KEY, vector TEXT)"
+            )
+        return self._conn
 
     def rebuild_index(self) -> None:
-        with self._conn:
-            self._conn.execute("DELETE FROM notes")
+        conn = self._conn_lazy()
+        with conn:
+            conn.execute("DELETE FROM notes")
             for p in iter_user_notes(self.vault_root):
                 text = p.read_text(encoding="utf-8", errors="replace")
                 vec = self.embedder.embed(text)
                 rel = str(p.relative_to(self.vault_root))
-                self._conn.execute(
+                conn.execute(
                     "INSERT OR REPLACE INTO notes VALUES (?, ?)",
                     (rel, json.dumps(vec)),
                 )
 
     def search(self, query: str, *, k: int) -> list[NoteRef]:
         q_vec = self.embedder.embed(query)
-        cur = self._conn.execute("SELECT rel_path, vector FROM notes")
+        conn = self._conn_lazy()
+        cur = conn.execute("SELECT rel_path, vector FROM notes")
         scored: list[tuple[str, float]] = []
         for rel, vec_json in cur.fetchall():
             vec = json.loads(vec_json)

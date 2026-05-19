@@ -459,14 +459,17 @@ def bootstrap_cmd(dry_run: bool) -> None:
 @click.option("--install-hooks/--no-install-hooks", default=False,
               help="Install Claude Code hooks that capture conversations into "
                    "this vault. Opt-in (default: off).")
-@click.option("--embeddings/--no-embeddings", default=False,
-              help="Enable semantic embeddings on materialize. Requires ollama "
-                   "+ nomic-embed-text. Default: off (lexical-only).")
 def materialize_cmd(
     spec_path: Path, vault_root: Path, claude_home: Path, state_dir: Path,
-    install_hooks: bool, embeddings: bool,
+    install_hooks: bool,
 ) -> None:
-    """Materialize the system described in a WizardSpec JSON file."""
+    """Materialize the system described in a WizardSpec JSON file.
+
+    Embeddings are NOT enabled by this command — it always writes per-vault
+    state with ``embeddings.enabled=false``. To enable semantic search after
+    materializing, run ``rufino enable-embeddings --vault <path>`` (which
+    detects Ollama, builds the index and atomically flips state).
+    """
     raw = json.loads(spec_path.read_text(encoding="utf-8"))
     try:
         spec = validate_spec(raw)
@@ -488,13 +491,14 @@ def materialize_cmd(
             click.echo(f"ERROR: {err}", err=True)
         raise click.exceptions.Exit(code=2)
 
-    # Record the embeddings choice in per-vault state so subsequent
-    # `rufino query` / `mcp-server` calls resolve the right embedder
-    # without re-prompting the user.
+    # Mark the vault as embeddings-off in per-vault state. The user runs
+    # `rufino enable-embeddings` later (which detects Ollama + rebuilds the
+    # index atomically); writing enabled=true here without those steps
+    # would leave the vault in an inconsistent state.
     write_vault_state(
         vault_slug=compute_vault_slug(result.vault_path),
         state_dir=state_dir_resolved,
-        embeddings_enabled=embeddings,
+        embeddings_enabled=False,
     )
 
     # Register a per-vault MCP server in ~/.claude.json so Claude Code can

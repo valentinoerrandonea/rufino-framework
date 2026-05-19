@@ -93,13 +93,14 @@ def test_materialize_registers_mcp_server(tmp_path, monkeypatch):
     assert entry["args"][2] == str(vault)
 
 
-def test_materialize_writes_vault_state_with_embeddings_flag(tmp_path, monkeypatch):
-    """materialize --embeddings persists `enabled: true` in per-vault state."""
+def test_materialize_no_longer_accepts_embeddings_flag(tmp_path, monkeypatch):
+    """F12 — materialize ya no acepta --embeddings: la decisión se difiere a
+    `rufino enable-embeddings`, que ejecuta el flow atómico (detect_ollama +
+    rebuild + write_state). Mantener un flag pasivo que sólo marcaba
+    enabled=true era footgun."""
     import json
-    import yaml
     from click.testing import CliRunner
     from rufino.cli import cli
-    from rufino.runtime.vault_slug import compute_vault_slug
 
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr("pathlib.Path.home", classmethod(lambda cls: tmp_path))
@@ -120,10 +121,9 @@ def test_materialize_writes_vault_state_with_embeddings_flag(tmp_path, monkeypat
         "--state-dir", str(state),
         "--embeddings",
     ])
-    assert res.exit_code == 0, res.output
-    yaml_path = state.resolve() / "vaults" / f"{compute_vault_slug(vault.resolve())}.yaml"
-    data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-    assert data["embeddings"]["enabled"] is True
+    # Click rechaza la opción desconocida con exit 2.
+    assert res.exit_code != 0
+    assert "embeddings" in res.output.lower() or "no such option" in res.output.lower()
 
 
 def test_materialize_writes_vault_state_disabled_by_default(tmp_path, monkeypatch):
