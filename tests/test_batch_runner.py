@@ -224,3 +224,42 @@ def test_runner_worker_nonzero_exit_counts_as_failure(tmp_path, monkeypatch):
     ))
 
     assert result.notes_failed == 1
+
+
+def test_runner_uses_consolidator_plan_when_available(tmp_path, monkeypatch):
+    """H10 claude: consolidator happy path must drive commit, not naive fallback.
+
+    fake_claude in ``augment_then_consolidate`` mode acts as a worker when
+    invoked with cwd containing an ``assignment.json`` and as the
+    consolidator when invoked from a cwd that has a ``workers/`` subdir
+    (the run_dir). The latter writes a real ``consolidation-plan.json``
+    with the marker log_entry ``"fake consolidator"``. We verify the
+    consolidator path drove the commit by reading the vault's processing
+    log — only the consolidator-produced plan injects that marker; the
+    naive fallback would emit ``batch-naive-commit ...``.
+    """
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment_then_consolidate")
+    vault, adapter, source = _make_minimal_setup(tmp_path)
+
+    result = asyncio.run(run_batch(
+        source=source, adapter_dir=adapter, vault_root=vault,
+        workers=1, batch_size=1, dry_run=False,
+        skip_consolidator=False, timeout_seconds=10.0,
+    ))
+
+    assert result.notes_ok >= 1
+    run_dir = vault / ".rufino" / "runs" / result.run_id
+    # Consolidator wrote its plan, naive fallback should not have run.
+    assert (run_dir / "consolidation-plan.json").exists(), (
+        "consolidator should have produced consolidation-plan.json"
+    )
+    # The plan's log_entries flow through commit -> _meta/_processing-log.md.
+    processing_log = vault / "_meta" / "_processing-log.md"
+    assert processing_log.exists(), "commit should have written the processing log"
+    log_text = processing_log.read_text(encoding="utf-8")
+    assert "fake consolidator" in log_text, (
+        f"expected consolidator marker in processing log, got:\n{log_text}"
+    )
+    assert "batch-naive-commit" not in log_text, (
+        "naive fallback should not have run when consolidator returned a plan"
+    )

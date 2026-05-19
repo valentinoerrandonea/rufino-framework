@@ -2,11 +2,24 @@
 """Fake `claude -p` for testing rufino process-batch.
 
 Mode (env var):
-  FAKE_CLAUDE_MODE: augment | augment_bad | qa | session_expired | empty | hang | fail
+  FAKE_CLAUDE_MODE: augment | augment_bad | qa | session_expired | empty
+                    | hang | fail | consolidate | augment_then_consolidate
 
 Notes to process are read from `assignment.json` in cwd when present
 (the dispatcher writes it). Fallback for direct runner_helper tests:
 FAKE_CLAUDE_NOTES (newline- or os.pathsep-separated absolute paths).
+
+Per-worker overrides:
+  FAKE_CLAUDE_MODE_<WORKER_ID_UPPER> (e.g. FAKE_CLAUDE_MODE_W001) — when
+  set and an assignment.json is present, this overrides FAKE_CLAUDE_MODE
+  for that specific worker. Lets a dispatcher test exercise mixed
+  behavior across siblings (e.g. w001 → session_expired, w002 → augment).
+
+augment_then_consolidate:
+  Discriminates by cwd:
+    - assignment.json present → behave as augment (worker invocation)
+    - workers/ subdir present → behave as consolidate (consolidator
+      invocation, cwd is run_dir)
 
 Run/worker identity in qa mode is taken from assignment.json too, with
 FAKE_CLAUDE_RUN_ID / FAKE_CLAUDE_WORKER_ID env vars as fallback.
@@ -14,6 +27,7 @@ FAKE_CLAUDE_RUN_ID / FAKE_CLAUDE_WORKER_ID env vars as fallback.
 Writes outputs to cwd:
   augmented/<slug>.md, deltas/<slug>.json (modes augment / augment_bad)
   pending/<slug>.json                       (mode qa)
+  consolidation-plan.json                   (mode consolidate)
 Exits 41                                   (mode session_expired)
 Hangs forever                              (mode hang — caller times out)
 """
@@ -92,8 +106,62 @@ def _augment(slug: str, body: str, *, valid: bool):
     return fm + body, delta
 
 
+def _write_consolidation_plan(cwd: Path) -> None:
+    """Synthesize a valid consolidation-plan.json from augmented worker outputs.
+
+    Walks ``cwd/workers/*/augmented/*.md`` (consolidator runs with cwd=run_dir)
+    and emits one move per augmented note targeting ``apuntes/<slug>.md`` —
+    matching the destination_path used by the test adapters. The log_entry
+    string ``"fake consolidator"`` is the marker the runner test asserts on
+    to distinguish the consolidator path from the naive fallback.
+    """
+    moves = []
+    for worker_aug in cwd.glob("workers/*/augmented/*.md"):
+        slug = worker_aug.stem
+        rel = worker_aug.relative_to(cwd)
+        moves.append({"from": str(rel), "to": f"apuntes/{slug}.md"})
+    plan = {
+        "moves": moves,
+        "concept_writes": [],
+        "tag_index_updates": [],
+        "log_entries": ["fake consolidator"],
+    }
+    (cwd / "consolidation-plan.json").write_text(
+        json.dumps(plan, indent=2), encoding="utf-8"
+    )
+
+
 def main() -> int:
-    mode = os.environ.get("FAKE_CLAUDE_MODE", "augment")
+    base_mode = os.environ.get("FAKE_CLAUDE_MODE", "augment")
+    cwd = Path.cwd()
+    assignment = _read_assignment(cwd)
+
+    # Per-worker override: if assignment.json names a worker_id and a
+    # FAKE_CLAUDE_MODE_<WID> env var is set, that wins. Lets sibling workers
+    # under one dispatch behave differently.
+    worker_id = assignment.get("worker_id")
+    if worker_id:
+        override = os.environ.get(f"FAKE_CLAUDE_MODE_{worker_id.upper()}")
+        if override:
+            base_mode = override
+
+    # augment_then_consolidate splits by cwd shape: workers have an
+    # assignment.json (dispatcher writes one per staging dir); consolidator
+    # runs from run_dir which contains workers/ but no assignment.json.
+    if base_mode == "augment_then_consolidate":
+        if assignment:
+            mode = "augment"
+        elif (cwd / "workers").is_dir():
+            mode = "consolidate"
+        else:
+            sys.stderr.write(
+                "fake-claude: augment_then_consolidate cannot infer role "
+                "(no assignment.json and no workers/ in cwd)\n"
+            )
+            return 2
+    else:
+        mode = base_mode
+
     if mode == "session_expired":
         sys.stderr.write("fake-claude: session expired\n")
         return SESSION_EXPIRED_EXIT
@@ -105,9 +173,10 @@ def main() -> int:
     if mode == "fail":
         sys.stderr.write("fake-claude: simulated unexpected failure\n")
         return 42
+    if mode == "consolidate":
+        _write_consolidation_plan(cwd)
+        return 0
 
-    cwd = Path.cwd()
-    assignment = _read_assignment(cwd)
     notes = _notes_from_assignment(assignment) or _notes_from_env()
 
     if mode == "qa":
