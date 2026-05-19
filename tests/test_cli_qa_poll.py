@@ -14,9 +14,9 @@ def test_qa_poll_cli_runs_with_no_pending(tmp_vault: Path, tmp_path: Path):
     assert "dispatched=0" in result.output
 
 
-def test_qa_poll_cli_does_not_consume_when_resumption_unimplemented(tmp_vault: Path, tmp_path: Path):
-    """If a pending answer exists, qa-poll must exit non-zero and leave the
-    callback + question in place (so a real handler can later resume)."""
+def test_qa_poll_cli_does_not_consume_non_batch_question(tmp_vault: Path, tmp_path: Path):
+    """qa-poll only resumes process-batch questions. Legacy QALoopAPI questions
+    (origin != 'process-batch') stay in `questions/` untouched, callback intact."""
     from rufino.engine.qa.api import QALoopAPI
     from rufino.engine.qa.callback_registry import CallbackRegistry
 
@@ -31,17 +31,15 @@ def test_qa_poll_cli_does_not_consume_when_resumption_unimplemented(tmp_vault: P
         adapter_name="adapter",
         adapter_state={"x": 1},
     )
-    # Simulate user answering.
     q_file = tmp_vault / "questions" / f"{q_id}.md"
     q_file.write_text(q_file.read_text().replace("answer:", 'answer: "x"'))
 
     result = CliRunner().invoke(cli, [
         "qa-poll", "--vault", str(tmp_vault), "--state-dir", str(state_dir),
     ])
-    assert result.exit_code != 0, result.output
-    # Callback must still be there for a real handler later.
+    assert result.exit_code == 0, result.output
+    assert "dispatched=0" in result.output
     registry = CallbackRegistry(state_dir / "callbacks.json")
     assert registry.get(q_id) is not None
-    # Question file must still be in `questions/`, not archived.
     assert q_file.exists()
     assert not (tmp_vault / "questions" / "answered" / f"{q_id}.md").exists()

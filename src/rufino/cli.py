@@ -13,7 +13,6 @@ from rufino.engine.ingest.runner import run_ingest
 from rufino.engine.output.dispatcher import dispatch_output
 from rufino.engine.output.channels.file_channel import FileChannel
 from rufino.engine.process.context_injectors import StubQueryLayer
-from rufino.engine.qa.worker import poll_and_dispatch
 from rufino.engine.query.api import QueryLayer
 from rufino.mcp_server.server import build_server
 from rufino.runtime.transaction_log import TransactionLog
@@ -147,54 +146,45 @@ def output_cmd(adapter_dir: Path, vault_root: Path) -> None:
 @click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
 @click.option("--state-dir", "state_dir", required=True, type=click.Path(path_type=Path))
 def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
-    """Poll questions/ for answered questions and dispatch their callbacks.
+    """Poll questions/ for answered questions and resume their workers."""
+    import asyncio
+    from rufino.engine.process.batch.errors import WorkerSessionExpiredError
+    from rufino.engine.process.batch.qa_resume import resume_pending_qa
 
-    Real adapter resumption is not wired yet. To avoid consuming user answers
-    (which `poll_and_dispatch` would archive on a no-op success), the handler
-    raises — `poll_and_dispatch` catches it and leaves the callback + question
-    intact for the next poll. If any pending answer exists, the CLI exits 2.
-    """
-    class _ResumptionNotImplemented(Exception):
-        pass
-
-    def _unimplemented_handler(*, adapter_name, adapter_state, answer):
-        raise _ResumptionNotImplemented(
-            f"qa-poll resumption not wired (adapter={adapter_name!r})"
-        )
-
-    dispatched = poll_and_dispatch(
-        vault_root=vault_root,
-        state_dir=state_dir,
-        handler=_unimplemented_handler,
-    )
-    # dispatched is always 0 here (handler always raises); check whether
-    # any pending answers existed by inspecting `questions/`.
-    pending_answered = False
     questions_dir = vault_root / "questions"
-    if questions_dir.exists():
-        for p in questions_dir.glob("*.md"):
-            if not p.is_file():
-                continue
-            text = p.read_text(encoding="utf-8", errors="replace")
-            # Heuristic: an answer line with non-empty value (any non-whitespace
-            # char after `answer:`) means the user filled it in.
-            for line in text.splitlines():
-                stripped = line.strip()
-                if stripped.startswith("answer:") and stripped not in (
-                    "answer:", "answer: "
-                ):
-                    pending_answered = True
-                    break
-            if pending_answered:
+    if not questions_dir.exists():
+        click.echo("dispatched=0")
+        return
+
+    answered: list[Path] = []
+    for qf in sorted(questions_dir.glob("*.md")):
+        text = qf.read_text(encoding="utf-8", errors="replace")
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("answer:") and stripped not in ("answer:", "answer: "):
+                answered.append(qf)
                 break
 
+    dispatched = 0
+    failures: list[str] = []
+
+    async def _process_all():
+        nonlocal dispatched
+        for qf in answered:
+            try:
+                ok = await resume_pending_qa(vault_root=vault_root, question_file=qf)
+            except WorkerSessionExpiredError as e:
+                failures.append(str(e))
+                continue
+            if ok:
+                dispatched += 1
+
+    asyncio.run(_process_all())
     click.echo(f"dispatched={dispatched}")
-    if pending_answered:
-        click.echo(
-            "Error: qa-poll resumption is not wired yet; answers preserved for retry.",
-            err=True,
-        )
-        raise click.exceptions.Exit(code=2)
+    if failures:
+        for f in failures:
+            click.echo(f"Error: {f}", err=True)
+        raise click.exceptions.Exit(code=1)
 
 
 @cli.command(name="query")
