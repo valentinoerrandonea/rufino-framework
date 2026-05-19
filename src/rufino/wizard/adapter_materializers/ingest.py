@@ -13,6 +13,21 @@ from rufino.wizard.spec_schema import IngestSpec
 _OUTPUT_MODE_TRANSLATIONS = {"emit_facts": "emit_fact"}
 
 
+_SCAFFOLD_FETCHER = '''"""TODO: implementar fetch(cursor) para este adapter.
+
+Contrato: ver docs/primitives/ingest.md. Hasta que esto se escriba,
+`rufino ingest <adapter_dir>` lanzará NotImplementedError de forma explícita.
+"""
+
+
+def fetch(cursor):
+    raise NotImplementedError(
+        "fetcher.py no implementado — el wizard generó un scaffold. "
+        "Editar este archivo para devolver (records, new_cursor)."
+    )
+'''
+
+
 def materialize_ingest(
     *,
     spec: IngestSpec,
@@ -53,6 +68,16 @@ def materialize_ingest(
         op="write",
         target=str(manifest_path),
         apply_fn=lambda: manifest_path.write_text(manifest_yaml, encoding="utf-8"),
+        rollback="delete",
+    )
+
+    fetcher_path = adapter_dir / "fetcher.py"
+    fetcher_body = spec.fetcher_body or _SCAFFOLD_FETCHER
+    apply_and_log(
+        tx_log,
+        op="write",
+        target=str(fetcher_path),
+        apply_fn=lambda: fetcher_path.write_text(fetcher_body, encoding="utf-8"),
         rollback="delete",
     )
     return adapter_dir

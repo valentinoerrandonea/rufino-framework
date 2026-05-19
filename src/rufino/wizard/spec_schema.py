@@ -45,6 +45,10 @@ class IngestSpec:
     dedup_by: str | None = None
     # emit_augmented
     process_inline_with: str | None = None
+    # Optional Python body for `fetcher.py` (any output_mode). When None the
+    # materializer writes a NotImplementedError scaffold so the adapter is
+    # importable but fail-fast on first run.
+    fetcher_body: str | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +210,14 @@ def _validate_ingest(entry: Any, *, idx: int) -> IngestSpec:
         kwargs["process_inline_with"] = _require_str(
             entry, "process_inline_with", where=where,
         )
+
+    fetcher_body = entry.get("fetcher_body")
+    if fetcher_body is not None and not isinstance(fetcher_body, str):
+        raise SpecError(
+            f"{where}: fetcher_body must be a string if provided, "
+            f"got {type(fetcher_body).__name__}"
+        )
+    kwargs["fetcher_body"] = fetcher_body
 
     return IngestSpec(**kwargs)
 

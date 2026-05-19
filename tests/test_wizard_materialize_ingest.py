@@ -4,6 +4,7 @@ codex P0 #2 (wizard <-> engine manifest-shape mismatch)."""
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from rufino.engine.ingest.manifest import parse_ingest_manifest
@@ -82,3 +83,66 @@ def test_emit_facts_manifest_serializes_destination_as_mapping(tmp_path: Path) -
     assert isinstance(raw["destination"], dict)
     assert raw["destination"]["facts"] == "_data/meetings.jsonl"
     assert raw["dedup_by"] == "id"  # string, no list
+
+
+def test_materialize_ingest_writes_fetcher_when_body_provided(tmp_path: Path) -> None:
+    """F7 — si la spec incluye fetcher_body, se materializa fetcher.py con ese cuerpo."""
+    spec_dict = _emit_facts_spec_dict()
+    spec_dict["sources"][0]["fetcher_body"] = (
+        "def fetch(cursor):\n"
+        "    return [], cursor\n"
+    )
+    spec = validate_spec(spec_dict)
+    tx = TransactionLog(tmp_path / "tx.json")
+    adapter_dir = materialize_ingest(
+        spec=spec.sources[0],
+        base_dir=tmp_path / "h",
+        vault_slug="demo",
+        tx_log=tx,
+    )
+    fetcher = adapter_dir / "fetcher.py"
+    assert fetcher.exists()
+    assert "def fetch" in fetcher.read_text(encoding="utf-8")
+
+
+def test_materialize_ingest_writes_scaffold_when_no_body(tmp_path: Path) -> None:
+    """Si la spec no incluye fetcher_body, se materializa scaffold con NotImplementedError."""
+    spec = validate_spec(_emit_facts_spec_dict())
+    tx = TransactionLog(tmp_path / "tx.json")
+    adapter_dir = materialize_ingest(
+        spec=spec.sources[0],
+        base_dir=tmp_path / "h",
+        vault_slug="demo",
+        tx_log=tx,
+    )
+    fetcher = adapter_dir / "fetcher.py"
+    assert fetcher.exists()
+    body = fetcher.read_text(encoding="utf-8")
+    assert "TODO" in body
+    assert "NotImplementedError" in body
+    assert "def fetch" in body
+
+
+def test_materialize_ingest_fetcher_rolls_back(tmp_path: Path) -> None:
+    """fetcher.py debe registrarse en el tx_log para rollback completo."""
+    spec = validate_spec(_emit_facts_spec_dict())
+    tx = TransactionLog(tmp_path / "tx.json")
+    adapter_dir = materialize_ingest(
+        spec=spec.sources[0],
+        base_dir=tmp_path / "h",
+        vault_slug="demo",
+        tx_log=tx,
+    )
+    assert (adapter_dir / "fetcher.py").exists()
+    tx.rollback()
+    assert not (adapter_dir / "fetcher.py").exists()
+    assert not adapter_dir.exists()
+
+
+def test_validate_spec_rejects_non_string_fetcher_body() -> None:
+    """fetcher_body debe ser string si está presente."""
+    from rufino.wizard.spec_schema import SpecError
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["fetcher_body"] = 42
+    with pytest.raises(SpecError, match="fetcher_body"):
+        validate_spec(bad)

@@ -47,7 +47,18 @@ process_with: "<process-adapter-name>"
 trigger: "immediate" | "defer"
 # === emit_augmented ===
 process_inline_with: "<process-adapter-name>"
+# === opcional para cualquier output_mode ===
+fetcher_body: |                                                        # opcional — string con el body completo de fetcher.py
+  def fetch(cursor):
+      ...
+      return records, new_cursor
 ```
+
+Si conocés cómo se hace el fetch concreto (API/CSV/etc) y la auth, **emití
+``fetcher_body`` con el body completo de ``fetcher.py``** — así el adapter
+queda operativo desde el bootstrap. Si no, omitilo: el materializer escribe
+un scaffold que lanza ``NotImplementedError`` y el adapter queda en estado
+"ready for hand-edit".
 
 ## 4. Patterns iniciales
 
