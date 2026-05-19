@@ -136,8 +136,8 @@ Para ver flags completos: `rufino <cmd> --help`. Referencia detallada: [`docs/cl
 | `rufino materialize --spec FILE --vault X --claude-home Y --state-dir Z` | Materializa un vault desde una `WizardSpec` JSON (lo que el wizard genera) |
 | `rufino install-memory-loop <adapter_dir> --vault X --claude-home Y` | Instala un Memory loop adapter en `~/.claude/` |
 | `rufino ingest <adapter_dir> --vault X --state-dir Y` | Corre un Ingest adapter una vez |
-| `rufino process <note> --vault X --mode {light\|full\|lint}` | Procesa una nota. `full` está stubbeado en v0.0.2 |
-| `rufino process-batch <zip-or-dir>` | Batch-procesa un corpus entero a notas augmentadas (v0.1.0) |
+| `rufino process <note> --vault X --mode {light\|full\|lint}` | Procesa una nota. `full` single-note queda diferido — usá `process-batch` para procesar en lote |
+| `rufino process-batch <zip-or-dir>` | Batch-procesa un corpus a notas augmentadas vía Claude workers (v0.1.0). Ver [`docs/cli-reference.md#rufino-process-batch`](docs/cli-reference.md#rufino-process-batch) |
 | `rufino output <adapter_dir> --vault X` | Corre un Output adapter una vez |
 | `rufino qa-poll --vault X --state-dir Y` | Procesa respuestas pendientes en `questions/` |
 | `rufino query "..." --vault X --mode {lexical\|semantic\|hybrid}` | Busca en el vault. `semantic`/`hybrid` requieren embedder real (deferido) |
@@ -166,11 +166,14 @@ Detalle, política de downgrades, y cómo escribir migrations: [`docs/upgrading.
 
 ## Estado
 
-**v0.0.2** — los 9 plans del roadmap están mergeados a `main` y el framework está listo para usarse. Algunas piezas están **deferidas a propósito** (no son bugs):
+**v0.1.0** — `rufino process-batch` orquesta `claude` headless en paralelo
+para batch-procesar corpus enteros (ZIPs, carpetas mixtas con md/docx/pptx/pdf/txt),
+con Q&A loop end-to-end (preguntas pendientes se reanudan vía `qa-poll`).
+Algunas piezas siguen **deferidas a propósito** (no son bugs):
 
-- `transform.py` (escape hatch de código determinista en adapters) — el manifest acepta el campo, el runner v1 todavía no lo invoca
+- `transform.py` (escape hatch de código determinista en adapters) — el manifest acepta el campo, el runner todavía no lo invoca
 - `Ingest output_mode: emit_augmented` (streaming directo a Process) — manifest parsea, dispatcher no wireado
-- `rufino process --mode full` — exits con código 2 hasta que se cierre la integración LLM + Query
+- Single-note `rufino process --mode full` — exits con código 2; usá `process-batch` para procesar en lote
 - Embedder real (Ollama + `nomic-embed-text`) — actualmente hay un placeholder `_NoopEmbeddings` que tira `NotImplementedError`, por eso `--mode lexical` es el único totalmente operativo en `rufino query`
 
 ---

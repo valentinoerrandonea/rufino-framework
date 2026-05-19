@@ -33,7 +33,7 @@ Reglas comunes que aplican a casi todos los manifests:
 - **Tag axes sin overlap** entre sí.
 - **Paths absolutos prohibidos** en `destination_path` — siempre relativos al vault. El validador rechaza paths que empiezan con `/` o paths que se escapan vía `..`.
 - **Referencias a otros adapters** (ej: `process_with: <name>`) — el target tiene que existir.
-- **Si declara `transform_hook`**: archivo existe + es ejecutable + smoke test pasa en sandbox con input dummy. *Nota: el runner real está deferido en v0.0.2 — el validador parsea el campo pero no corre el smoke todavía.*
+- **Si declara `transform_hook`**: archivo existe + es ejecutable + smoke test pasa en sandbox con input dummy. *Nota: el runner real está deferido — el validador parsea el campo pero no corre el smoke todavía.*
 - **Si declara `template`**: archivo existe + placeholders válidos.
 
 El validador vive en `src/rufino/runtime/validator_base.py` (clase base + protocolo) y se especializa por shape en cada engine.
@@ -82,7 +82,7 @@ trigger: immediate | defer            # default: immediate
 process_inline_with: <process-adapter-name>
 
 # === opcional ===
-transform_hook: ./transform.py        # parsed, no invocado en v0.0.2
+transform_hook: ./transform.py        # parsed, no invocado todavía
 ```
 
 ### Ejemplo: Belo (transacciones financieras)
@@ -181,6 +181,9 @@ applies_when:
 
 llm: sonnet | haiku | opus
 mode_default: full | light
+batch_size: <int>                     # opcional; default 10. Notas por worker en
+                                      # `rufino process-batch`. Entero positivo
+                                      # (>=1). Lo overridea el flag --batch-size.
 
 output_schema:
   required:
@@ -217,6 +220,7 @@ applies_when:
 
 llm: sonnet
 mode_default: full
+batch_size: 10
 
 output_schema:
   required:

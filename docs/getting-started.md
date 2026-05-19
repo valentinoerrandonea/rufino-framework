@@ -47,7 +47,7 @@ Verificá:
 
 ```bash
 which rufino       # → /Users/<vos>/.local/bin/rufino (o equivalente de pipx)
-rufino version     # → 0.0.3
+rufino version     # → 0.1.0
 ```
 
 > `process-batch` requiere `mammoth` y `python-pptx` (declarados en
@@ -164,7 +164,7 @@ Después de un bootstrap exitoso, tu disco tiene:
 
 ```
 ~/.rufino/
-├── version                  # 0.0.3
+├── version                  # 0.1.0
 ├── applied-migrations       # vacío al principio
 ├── state/                   # cursores de Ingest, dedup, qa state
 ├── backups/                 # snapshots pre-upgrade

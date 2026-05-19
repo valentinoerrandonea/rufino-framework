@@ -199,7 +199,7 @@ Después abrí una sesión nueva de Claude Code — el MCP se carga al startup.
 Error: --mode=hybrid requires a real embedder; only --mode=lexical is wired in this release
 ```
 
-v0.0.2 todavía no integró Ollama. Usá `--mode lexical`:
+El embedder real (Ollama) todavía no está integrado. Usá `--mode lexical`:
 
 ```bash
 rufino query "tu busqueda" --vault <X> --mode lexical
@@ -209,7 +209,9 @@ Para semántica real, esperá la integración del embedder (plan referenciado en
 
 ### `rufino process --mode full` exits 2
 
-Mismo deal — el wiring del modo `full` aterriza cuando se cierre la integración LLM + Query. Usá `--mode light` para registrar notas sin LLM call, o esperá el release.
+El single-note `--mode full` queda diferido. Para procesar en lote (ZIP o
+directorio con múltiples docs) usá `rufino process-batch`. Para registrar
+notas sin LLM call, usá `--mode light`.
 
 ### Una nota se procesó mal
 
@@ -235,12 +237,16 @@ Si `emitted=0 skipped=0 errors=0`, no hay data nueva desde el último cursor. Es
 ```bash
 rufino qa-poll --vault <X> --state-dir ~/.rufino/state
 # dispatched=0
-# Error: qa-poll resumption is not wired yet
 ```
 
-El resumption real está pendiente — `qa-poll` no consume answers todavía (a propósito, para no perderlos). Tus answers quedan en `<vault>/questions/<slug>.md` con el `answer:` lleno. Cuando aterrice el wiring, una corrida re-procesará todos.
+`qa-poll` resuelve preguntas originadas en `process-batch`: detecta
+`answer:` no vacíos en `<vault>/questions/`, retoma el worker con la
+respuesta inyectada y archiva la pregunta a `questions/answered/`. Si
+`dispatched=0` y tenés `answer:` llenos, revisá que el `origin:` del
+frontmatter apunte a un adapter con resumption soportada (otros adapters
+todavía no la implementan).
 
-Como workaround, si querés cerrar manualmente una Q&A:
+Si necesitás cerrar manualmente una Q&A de un adapter sin resumption:
 
 1. Editá el frontmatter de la pregunta con tu answer
 2. Mové el archivo a `<vault>/questions/answered/`
@@ -318,7 +324,7 @@ Por default rebuildea índices semantic+graph al startup. En vaults grandes esto
 
 ### Process se cuelga en una nota grande
 
-v0.0.2 no tiene timeout configurable. Si tenés PDFs gigantes que cuelgan el pipeline, splitealos antes de tirarlos al inbox, o esperá a la integración del sandbox con timeouts reales.
+El single-note Process no tiene timeout configurable. Si tenés PDFs gigantes que cuelgan el pipeline, splitealos antes de tirarlos al inbox, o esperá a la integración del sandbox con timeouts reales.
 
 ---
 

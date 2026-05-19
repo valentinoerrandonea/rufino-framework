@@ -14,7 +14,7 @@ rufino version
 
 Imprime la versión instalada. Sin flags.
 
-Output: línea única con la versión (ej: `0.0.2`).
+Output: línea única con la versión (ej: `0.1.0`).
 
 Implementado en `src/rufino/cli.py` (`version` command); valor leído de `src/rufino/version.py:VERSION`.
 
@@ -178,8 +178,8 @@ Flags:
 
 Modos:
 
-- **`light`** (operativo en v0.0.2): solo update de indices + file move + frontmatter completion. Sin LLM, sin transform hook, sin Q&A. Útil para notas que vos / Claude escribieron a mano y solo necesitan ser registradas + linkeadas.
-- **`full`** (stubbed en v0.0.2 — exits 2): pipeline completo con LLM call, context injection, validation, transform hook, Q&A check, indices update. **El CLI wiring de `--mode full` aterriza cuando se cierre la integración LLM + Query real.**
+- **`light`** (operativo): solo update de indices + file move + frontmatter completion. Sin LLM, sin transform hook, sin Q&A. Útil para notas que vos / Claude escribieron a mano y solo necesitan ser registradas + linkeadas.
+- **`full`** (deferido — exits 2): pipeline completo single-note con LLM call, context injection, validation, transform hook, Q&A check, indices update. Para procesar un corpus en lote usá [`rufino process-batch`](#rufino-process-batch).
 - **`lint`** (operativo): valida sin modificar — chequea triple_vocabulary, frontmatter schema, wikilinks rotos.
 
 Exit codes:
@@ -188,9 +188,51 @@ Exit codes:
 |---|---|
 | 0 | OK |
 | 1 | Argumentos inválidos |
-| 2 | `--mode full` requiere wiring deferido |
+| 2 | `--mode full` queda diferido (single-note); usá `process-batch` |
 
 Detalle del primitive: [`primitives/process.md`](primitives/process.md).
+
+---
+
+## `rufino process-batch`
+
+Procesa un corpus entero (directorio o ZIP) generando notas augmentadas
+en paralelo vía workers de Claude.
+
+### Sinopsis
+
+    rufino process-batch <source> [options]
+
+### Argumentos
+
+- `<source>` — directorio o archivo `.zip` con el corpus a procesar.
+
+### Opciones
+
+| Flag | Descripción | Default |
+|---|---|---|
+| `--adapter <dir>` | Worker adapter a usar | (último materializado) |
+| `--vault <dir>` | Vault destino | `$RUFINO_VAULT` |
+| `--workers <N>` | Workers paralelos | `min(4, n_workers)` |
+| `--batch-size <N>` | Notas por worker (override del manifest) | manifest |
+| `--dry-run` | Solo stage + plan, sin ejecutar workers | `False` |
+| `--skip-consolidator` | Saltea consolidador y usa naive plan | `False` |
+
+### Exit codes
+
+- `0` — run completo, commit aplicado.
+- `1` — error de runtime (corpus vacío, manifest inválido, batch failure).
+- `124` — un worker hizo timeout.
+- `127` — `claude` binary no encontrado en PATH.
+- session-expired — exit code 1 con mensaje pidiendo `claude login`.
+
+### Ejemplos
+
+    rufino process-batch ~/Downloads/corpus.zip \
+      --adapter ~/.rufino/adapters/process/notas \
+      --vault ~/vault --workers 4
+
+    rufino process-batch ./corpus --dry-run
 
 ---
 
@@ -209,7 +251,7 @@ Flags:
 | `adapter_dir` | sí | Carpeta del adapter (con `manifest.yaml` + `template.md`) |
 | `--vault PATH` | sí | Path al vault del usuario |
 
-Limitación v0.0.2: el query backend usado es **solo lexical** (placeholder `_NoopEmbeddings` hasta que aterrice Ollama). Si tu Output query expression requiere semántica, va a fallar.
+Limitación actual: el query backend usado es **solo lexical** (placeholder `_NoopEmbeddings` hasta que aterrice Ollama). Si tu Output query expression requiere semántica, va a fallar.
 
 Output:
 
@@ -238,14 +280,14 @@ Flags:
 | `--vault PATH` | sí | Path al vault |
 | `--state-dir PATH` | sí | Path al state dir (donde vive `callbacks.json`) |
 
-Limitación v0.0.2: el resumption real de adapters está pendiente. El handler interno levanta `_ResumptionNotImplemented` (a propósito — para no consumir el answer del usuario), así que `dispatched` siempre vuelve `0`. Si hay alguna pregunta con answer pendiente, el comando exits 2 y los archivos quedan intactos para retry.
+`qa-poll` resuelve preguntas originadas en `process-batch`: detecta `answer:` no vacíos en `<vault>/questions/`, retoma el worker con la respuesta inyectada, y archiva la pregunta a `questions/answered/` (ver el primitive doc para el detalle del flujo).
 
 Exit codes:
 
 | Code | Significado |
 |---|---|
-| 0 | OK, sin pending |
-| 2 | Hay answers pendientes que no se pueden dispatchar (resumption deferred) |
+| 0 | OK — sin pending o resumption aplicada |
+| 2 | Hay answers pendientes para adapters que no soportan resumption todavía |
 
 Detalle del primitive: [`primitives/qa-loop.md`](primitives/qa-loop.md).
 
@@ -269,7 +311,7 @@ Flags:
 | `--vault PATH` | sí | — | Path al vault (debe existir) |
 | `--mode {lexical,semantic,hybrid}` | no | `hybrid` | Backend a usar |
 
-Limitación v0.0.2: **solo `--mode lexical` funciona**. `--mode semantic` y `--mode hybrid` requieren un embedder real (Ollama + `nomic-embed-text`) que está deferido — el CLI exits con código 2 y un mensaje claro.
+Limitación actual: **solo `--mode lexical` funciona**. `--mode semantic` y `--mode hybrid` requieren un embedder real (Ollama + `nomic-embed-text`) que está deferido — el CLI exits con código 2 y un mensaje claro.
 
 Cuando aterrice el embedder real, `hybrid` será el default.
 
@@ -315,5 +357,5 @@ Tools que expone: `search_vault`, `read_note`, `traverse_relations`, `list_perso
 |---|---|
 | 0 | OK |
 | 1 | Argumentos / spec / config inválido (input del usuario) |
-| 2 | Feature deferida / wiring no implementado en v0.0.2 |
+| 2 | Feature deferida / wiring no implementado |
 | 127 | Dependency externa faltante (`claude` CLI no encontrado, etc.) |

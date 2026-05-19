@@ -22,7 +22,7 @@ El vault es la **fuente de verdad**. Cualquier consulta o derivado lee de acá.
 
 ## Primitive
 
-Componente core del framework con una responsabilidad bien definida. v0.0.2 tiene **6 primitives**:
+Componente core del framework con una responsabilidad bien definida. El framework tiene **6 primitives**:
 
 | Primitive | Qué hace |
 |---|---|
@@ -206,7 +206,7 @@ Detalle: [`primitives/qa-loop.md`](primitives/qa-loop.md).
 
 ## Sandbox
 
-(Deferido en v0.0.2.) Cuando `transform.py` se implemente, va a correr en un sandbox `subprocess.run` con timeout, env restringido, filesystem readonly excepto `transform_writes_to`, y network bloqueado por default. Implementación parcial en `src/rufino/runtime/sandbox.py`.
+(Deferido.) Cuando `transform.py` se implemente, va a correr en un sandbox `subprocess.run` con timeout, env restringido, filesystem readonly excepto `transform_writes_to`, y network bloqueado por default. Implementación parcial en `src/rufino/runtime/sandbox.py`.
 
 ## `~/.rufino/`
 

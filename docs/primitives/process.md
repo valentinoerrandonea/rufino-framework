@@ -16,7 +16,7 @@ Augmenta notas crudas: frontmatter, body augmentado, triples tipados, tags por e
 | `light` | Solo update de indices + file move + frontmatter completion | Notas escritas a mano (por vos o Claude) que solo necesitan ser registradas + linkeadas |
 | `lint` | Valida sin modificar | CI / verificación pre-commit |
 
-**Estado v0.0.2:** `light` y `lint` operativos. `full` está stubbeado — el CLI exits con código 2. Aterriza con la integración LLM + Query real.
+**Estado actual (single-note):** `light` y `lint` operativos. `full` queda diferido — el CLI single-note exits con código 2. Para procesar en lote usá [`rufino process-batch`](#batch-processing-v010).
 
 ## Batch processing (v0.1.0+)
 
@@ -109,7 +109,7 @@ context_injectors:
   - name: <name>
     query: "<query-expression>"       # usado para inyectar contexto en el prompt
 
-transform_hook: ./transform.py        # opcional, deferido en v0.0.2
+transform_hook: ./transform.py        # opcional, deferido
 ```
 
 ## Validador del manifest
@@ -144,7 +144,7 @@ rufino process <note_path> --vault <X> --mode {light|full|lint} [--adapter-dir <
 ```
 
 - `--mode light` no requiere `--adapter-dir`; usa heurística para inferir dónde mover la nota.
-- `--mode full` requiere `--adapter-dir` apuntando al Process adapter relevante. **Exits 2 en v0.0.2** (deferido).
+- `--mode full` requiere `--adapter-dir` apuntando al Process adapter relevante. **Exits 2** (single-note deferido; usá `process-batch` para procesar en lote).
 - `--mode lint` valida sin modificar y sale con código 1 si hay errores.
 
 ## Ejemplo: adapter completo
@@ -166,7 +166,7 @@ Si `update_tag_index()` o `append_to_log()` fallan **después** del LLM call exi
 - ✅ `mode_default: light` — operativo (registro + file move sin LLM)
 - ✅ `mode_default: lint` — operativo (validación pure)
 - ✅ Batch processing vía `rufino process-batch` — orquesta `claude` headless
-- ⏸ Single-note `rufino process --mode full` — sigue stubbed (exits 2); usá
+- ⏸ Single-note `rufino process --mode full` — queda diferido (exits 2); usá
   `process-batch` apuntando a una carpeta de 1 archivo para single-note
 - ✅ Q&A loop end-to-end (worker emite pending, Rufino escribe pregunta,
   `qa-poll` resume y archiva)

@@ -155,7 +155,7 @@ rufino-framework/
 │   ├── __init__.py
 │   ├── __main__.py
 │   ├── cli.py                       # CLI Click (fachada thin)
-│   ├── version.py                   # VERSION = "0.0.2"
+│   ├── version.py                   # VERSION = "0.1.0"
 │   ├── engine/                      # las 6 primitives
 │   │   ├── ingest/
 │   │   ├── process/
@@ -238,15 +238,14 @@ Correr tests:
 
 ## Cosas deferidas a propósito
 
-Estas no son bugs — son features con plan referenciado, no implementadas en v0.0.2:
+Estas no son bugs — son features con plan referenciado, no implementadas en v0.1.0:
 
 | Pieza | Estado | Plan |
 |---|---|---|
 | `transform.py` (escape hatch de código determinista) | Manifest acepta y parsea `transform_hook`, runner no lo invoca | TBD |
 | Ingest `output_mode: emit_augmented` | Manifest parsea, dispatcher inline no wireado | TBD |
-| `rufino process --mode full` | CLI exits 2 | Aterriza con integración LLM + Query real |
+| Single-note `rufino process --mode full` | CLI exits 2; usá `process-batch` para procesar en lote | Reviving stays out of scope |
 | Embedder real (Ollama + nomic-embed-text) | Placeholder `_NoopEmbeddings` que tira NotImplementedError | TBD — plan referenciado |
-| Q&A resumption real | `qa-poll` handler raisea para no consumir answers | TBD |
 
 Si encontrás algo que parece roto pero está en esta tabla, **no es bug** — revisá el plan referenciado.
 
