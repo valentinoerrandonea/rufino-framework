@@ -319,3 +319,56 @@ def materialize_cmd(
     )
     click.echo(f"Vault materialized at {result.vault_path}")
     click.echo(f"Registered ask-rufino MCP at {claude_config}")
+
+
+@cli.command(name="process-batch")
+@click.argument("source", type=click.Path(exists=True, path_type=Path))
+@click.option("--adapter", "adapter_dir", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path),
+              help="Path to the Process adapter directory")
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(path_type=Path),
+              help="Vault root")
+@click.option("--workers", type=int, default=None,
+              help="Max concurrent workers (default: min(4, num_groups))")
+@click.option("--batch-size", "batch_size", type=int, default=None,
+              help="Override the adapter manifest's batch_size")
+@click.option("--dry-run", is_flag=True,
+              help="Stop after PLAN; print the plan path; do not spawn workers")
+def process_batch_cmd(
+    source: Path, adapter_dir: Path, vault_root: Path,
+    workers: int | None, batch_size: int | None, dry_run: bool,
+) -> None:
+    """Process a corpus (ZIP or directory) into augmented vault notes."""
+    import asyncio
+    from rufino.engine.process.batch.errors import (
+        BatchError, WorkerSessionExpiredError,
+    )
+    from rufino.engine.process.batch.runner import run_batch
+
+    try:
+        result = asyncio.run(run_batch(
+            source=source, adapter_dir=adapter_dir, vault_root=vault_root,
+            workers=workers, batch_size=batch_size, dry_run=dry_run,
+        ))
+    except WorkerSessionExpiredError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.exceptions.Exit(code=1)
+    except BatchError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.exceptions.Exit(code=1)
+    except FileNotFoundError as e:
+        if "claude" in str(e):
+            click.echo("Error: `claude` no encontrado en PATH.", err=True)
+            raise click.exceptions.Exit(code=127)
+        raise
+
+    if result.dry_run:
+        click.echo(f"dry-run: plan written to {result.plan_path}")
+        click.echo(f"notes_total={result.notes_total}")
+        return
+    click.echo(
+        f"run_id={result.run_id} total={result.notes_total} "
+        f"ok={result.notes_ok} failed={result.notes_failed} "
+        f"pending_qa={result.notes_pending_qa}"
+    )
