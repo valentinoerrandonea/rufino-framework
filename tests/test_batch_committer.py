@@ -162,3 +162,75 @@ def test_commit_succeeds_when_run_twice_with_overwrites(tmp_path):
     # Rollback run 2 should restore V1 (not V0, not crash):
     tx2.rollback()
     assert (vault / "conceptos" / "dfs.md").read_text() == "V1\n"
+
+
+def test_commit_snapshots_existing_destination_and_rollback_restores_old_content(tmp_path):
+    """C3 codex: pre-existing dest must survive rollback when later op fails."""
+    vault = tmp_path / "vault"
+    run_dir = tmp_path / "run"
+    (vault / "apuntes").mkdir(parents=True)
+    (vault / "apuntes" / "n1.md").write_text("OLD", encoding="utf-8")
+
+    (run_dir / "workers" / "w001" / "augmented").mkdir(parents=True)
+    (run_dir / "workers" / "w001" / "augmented" / "n1.md").write_text("NEW", encoding="utf-8")
+
+    plan = ConsolidationPlan(
+        moves=[
+            {"from": "workers/w001/augmented/n1.md", "to": "apuntes/n1.md"},
+            {"from": "workers/w001/augmented/missing.md", "to": "apuntes/missing.md"},
+        ],
+        concept_writes=[], tag_index_updates=[], log_entries=[],
+    )
+    tx = TransactionLog(run_dir / "tx.json")
+    with pytest.raises(FileNotFoundError):
+        commit(plan=plan, vault_root=vault, run_dir=run_dir, tx_log=tx)
+
+    # After rollback the OLD content must be back at the destination
+    assert (vault / "apuntes" / "n1.md").read_text(encoding="utf-8") == "OLD"
+
+
+def test_commit_rejects_duplicate_destinations(tmp_path):
+    """Two moves cannot target the same path within one plan."""
+    vault = tmp_path / "vault"
+    run_dir = tmp_path / "run"
+    aug = run_dir / "workers" / "w001" / "augmented"
+    aug.mkdir(parents=True)
+    (aug / "a.md").write_text("A", encoding="utf-8")
+    (aug / "b.md").write_text("B", encoding="utf-8")
+
+    plan = ConsolidationPlan(
+        moves=[
+            {"from": "workers/w001/augmented/a.md", "to": "apuntes/x.md"},
+            {"from": "workers/w001/augmented/b.md", "to": "apuntes/x.md"},
+        ],
+        concept_writes=[], tag_index_updates=[], log_entries=[],
+    )
+    tx = TransactionLog(run_dir / "tx.json")
+    with pytest.raises(ValueError, match="duplicate destination"):
+        commit(plan=plan, vault_root=vault, run_dir=run_dir, tx_log=tx)
+    # Vault must be untouched
+    assert not (vault / "apuntes" / "x.md").exists()
+
+
+def test_committer_nul_encoded_target_survives_json_roundtrip(tmp_path):
+    """H7: rollback after reload from disk must still parse \\x00-encoded target."""
+    vault = tmp_path / "vault"
+    run_dir = tmp_path / "run"
+    (vault / "apuntes").mkdir(parents=True)
+    (vault / "apuntes" / "n1.md").write_text("OLD", encoding="utf-8")
+    aug = run_dir / "workers" / "w001" / "augmented"
+    aug.mkdir(parents=True)
+    (aug / "n1.md").write_text("NEW", encoding="utf-8")
+
+    plan = ConsolidationPlan(
+        moves=[{"from": "workers/w001/augmented/n1.md", "to": "apuntes/n1.md"}],
+        concept_writes=[], tag_index_updates=[], log_entries=[],
+    )
+    tx_path = run_dir / "tx.json"
+    tx = TransactionLog(tx_path)
+    commit(plan=plan, vault_root=vault, run_dir=run_dir, tx_log=tx)
+
+    # Reload tx_log from disk and rollback
+    reloaded = TransactionLog.load(tx_path)
+    reloaded.rollback()
+    assert (vault / "apuntes" / "n1.md").read_text(encoding="utf-8") == "OLD"

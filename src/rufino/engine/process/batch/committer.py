@@ -50,6 +50,22 @@ def _undo_move(target: str) -> None:
         shutil.move(dest, src)
 
 
+def _undo_move_overwrite(target: str) -> None:
+    """Restore dest from snap, then move dest back to src. Target format:
+    ``"<dest>\\x00<src>\\x00<snap>"``."""
+    parts = target.split(_NUL)
+    if len(parts) != 3:
+        return
+    dest, src, snap = parts
+    # First, move the new content back to staging (undo of the move)
+    if Path(dest).exists() and Path(snap).exists():
+        Path(src).parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(dest, src)
+        shutil.copy2(snap, dest)
+    elif Path(snap).exists():
+        shutil.copy2(snap, dest)
+
+
 def _undo_snapshot_restore(target: str) -> None:
     """Restore ``live`` from ``snap``. Target format: ``"<live>\\x00<snap>"``."""
     if _NUL not in target:
@@ -78,6 +94,7 @@ def _undo_log_append(target: str) -> None:
 
 
 register_rollback("batch_undo_move", _undo_move)
+register_rollback("batch_undo_move_overwrite", _undo_move_overwrite)
 register_rollback("batch_undo_snapshot_restore", _undo_snapshot_restore)
 register_rollback("batch_undo_log_append", _undo_log_append)
 
@@ -98,6 +115,13 @@ def commit(
 ) -> None:
     """Apply plan via tx_log. On any failure, rollback restores state and the
     exception propagates."""
+    # Reject duplicate destinations before any disk op.
+    seen: set[str] = set()
+    for m in plan.moves:
+        if m["to"] in seen:
+            raise ValueError(f"duplicate destination in plan: {m['to']!r}")
+        seen.add(m["to"])
+
     try:
         for m in plan.moves:
             src = _safe_in_run_dir(run_dir, m["from"])
@@ -106,16 +130,31 @@ def commit(
                 raise FileNotFoundError(f"missing source: {src}")
             dest.parent.mkdir(parents=True, exist_ok=True)
 
-            def _do_move(src=src, dest=dest) -> None:
-                shutil.move(str(src), str(dest))
+            if dest.exists():
+                snap = _new_backup_path(run_dir, dest.stem)
+                shutil.copy2(dest, snap)
 
-            apply_and_log(
-                tx_log,
-                op="batch_move",
-                target=f"{dest}{_NUL}{src}",
-                apply_fn=_do_move,
-                rollback="batch_undo_move",
-            )
+                def _do_move(src=src, dest=dest) -> None:
+                    shutil.move(str(src), str(dest))
+
+                apply_and_log(
+                    tx_log,
+                    op="batch_move_overwrite",
+                    target=f"{dest}{_NUL}{src}{_NUL}{snap}",
+                    apply_fn=_do_move,
+                    rollback="batch_undo_move_overwrite",
+                )
+            else:
+                def _do_move(src=src, dest=dest) -> None:
+                    shutil.move(str(src), str(dest))
+
+                apply_and_log(
+                    tx_log,
+                    op="batch_move",
+                    target=f"{dest}{_NUL}{src}",
+                    apply_fn=_do_move,
+                    rollback="batch_undo_move",
+                )
 
         for cw in plan.concept_writes:
             dest = _safe_in_vault(vault_root, cw["path"])
