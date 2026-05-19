@@ -1,6 +1,5 @@
 """End-to-end tests for the process-batch top-level runner."""
 import asyncio
-import os
 from pathlib import Path
 
 import pytest
@@ -12,52 +11,30 @@ from rufino.engine.process.batch.runner import (
 )
 
 
-def _make_minimal_setup(tmp_path: Path) -> tuple[Path, Path, Path]:
+@pytest.fixture(autouse=True)
+def _fake_claude(fake_claude_on_path):
+    """Autouse delegate to shared conftest fixture (FAKE_CLAUDE_DIR on PATH)."""
+    yield
+
+
+def _make_minimal_setup(
+    tmp_path: Path, batch_adapter
+) -> tuple[Path, Path, Path]:
     """Smallest viable batch input: a vault dir, an adapter, and a 1-note corpus.
 
     Returns ``(vault, adapter, source)``.
     """
     vault = tmp_path / "vault"
     vault.mkdir()
-    adapter = _make_adapter(tmp_path)
+    adapter = batch_adapter(batch_size=5)
     source = tmp_path / "corpus"
     source.mkdir()
     (source / "n1.md").write_text("# n1\n", encoding="utf-8")
     return vault, adapter, source
 
 
-FAKE_DIR = Path(__file__).parent / "fixtures" / "fake_claude"
-
-
-@pytest.fixture(autouse=True)
-def _fake_claude(monkeypatch):
-    monkeypatch.setenv("PATH", str(FAKE_DIR.resolve()) + os.pathsep + os.environ["PATH"])
-
-
-def _make_adapter(tmp_path: Path) -> Path:
-    adapter = tmp_path / "adapter"
-    adapter.mkdir()
-    (adapter / "manifest.yaml").write_text("""
-adapter_name: x
-note_type: x
-applies_when: {source_dir: inbox/, matches_pattern: ["*.md"]}
-llm: sonnet
-mode_default: full
-output_schema:
-  required:
-    title: string
-    materia: string
-triple_vocabulary: [tema-de]
-tag_axes: [{axis: materia, format: "materia/{slug}"}]
-destination_path: "apuntes/{slug}.md"
-batch_size: 5
-""")
-    (adapter / "prompt.md").write_text("# instructions\n")
-    return adapter
-
-
-def test_dry_run_stops_after_plan(tmp_path, monkeypatch):
-    adapter = _make_adapter(tmp_path)
+def test_dry_run_stops_after_plan(tmp_path, monkeypatch, batch_adapter):
+    adapter = batch_adapter(batch_size=5)
     source = tmp_path / "corpus"
     (source / "math").mkdir(parents=True)
     (source / "math" / "n1.md").write_text("# n1\n")
@@ -74,8 +51,8 @@ def test_dry_run_stops_after_plan(tmp_path, monkeypatch):
     assert not (run_dir / "workers").exists()
 
 
-def test_full_run_commits(tmp_path, monkeypatch):
-    adapter = _make_adapter(tmp_path)
+def test_full_run_commits(tmp_path, monkeypatch, batch_adapter):
+    adapter = batch_adapter(batch_size=5)
     source = tmp_path / "corpus"
     (source / "math").mkdir(parents=True)
     (source / "math" / "n1.md").write_text("# n1\n")
@@ -95,10 +72,10 @@ def test_full_run_commits(tmp_path, monkeypatch):
     assert landed, "no committed note in vault canon"
 
 
-def test_empty_corpus_raises_batcherror(tmp_path, monkeypatch):
+def test_empty_corpus_raises_batcherror(tmp_path, monkeypatch, batch_adapter):
     """Source dir with no recognizable notes should fail fast, not enter
     DISPATCH with an empty plan."""
-    adapter = _make_adapter(tmp_path)
+    adapter = batch_adapter(batch_size=5)
     source = tmp_path / "empty_corpus"
     source.mkdir()
     vault = tmp_path / "vault"
@@ -111,12 +88,14 @@ def test_empty_corpus_raises_batcherror(tmp_path, monkeypatch):
         ))
 
 
-def test_consolidator_returns_none_falls_back_to_naive(tmp_path, monkeypatch):
+def test_consolidator_returns_none_falls_back_to_naive(
+    tmp_path, monkeypatch, batch_adapter
+):
     """With ``skip_consolidator=False``, run_consolidator is invoked. The
     fake_claude binary in ``augment`` mode does NOT write
     ``consolidation-plan.json``, so the consolidator returns None and the
     naive fallback must take over and commit the note."""
-    adapter = _make_adapter(tmp_path)
+    adapter = batch_adapter(batch_size=5)
     source = tmp_path / "corpus"
     (source / "math").mkdir(parents=True)
     (source / "math" / "n1.md").write_text("# n1\n")
@@ -136,11 +115,11 @@ def test_consolidator_returns_none_falls_back_to_naive(tmp_path, monkeypatch):
     assert landed, "naive fallback did not commit the note to vault canon"
 
 
-def test_validate_failure_triggers_retry(tmp_path, monkeypatch):
+def test_validate_failure_triggers_retry(tmp_path, monkeypatch, batch_adapter):
     """``augment_bad`` makes the worker emit invalid frontmatter. Validation
     fails, retry fires (and also fails with augment_bad), the note ends up in
     ``notes_failed`` and a failed/ marker is on disk."""
-    adapter = _make_adapter(tmp_path)
+    adapter = batch_adapter(batch_size=5)
     source = tmp_path / "corpus"
     (source / "math").mkdir(parents=True)
     (source / "math" / "n1.md").write_text("# n1\n")
@@ -163,10 +142,10 @@ def test_validate_failure_triggers_retry(tmp_path, monkeypatch):
     )
 
 
-def test_pending_qa_written_to_vault(tmp_path, monkeypatch):
+def test_pending_qa_written_to_vault(tmp_path, monkeypatch, batch_adapter):
     """``qa`` mode makes the worker emit a pending question. The runner
     collects it and writes a question file into the vault."""
-    adapter = _make_adapter(tmp_path)
+    adapter = batch_adapter(batch_size=5)
     source = tmp_path / "corpus"
     (source / "math").mkdir(parents=True)
     (source / "math" / "n1.md").write_text("# n1\n")
@@ -183,10 +162,12 @@ def test_pending_qa_written_to_vault(tmp_path, monkeypatch):
     assert questions, "no question file written to vault/questions/"
 
 
-def test_runner_empty_worker_output_counts_as_failure(tmp_path, monkeypatch):
+def test_runner_empty_worker_output_counts_as_failure(
+    tmp_path, monkeypatch, batch_adapter
+):
     """Codex C2: FAKE_CLAUDE_MODE=empty must produce notes_failed == notes_total."""
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "empty")
-    vault, adapter, source = _make_minimal_setup(tmp_path)
+    vault, adapter, source = _make_minimal_setup(tmp_path, batch_adapter)
 
     result = asyncio.run(run_batch(
         source=source, adapter_dir=adapter, vault_root=vault,
@@ -199,9 +180,11 @@ def test_runner_empty_worker_output_counts_as_failure(tmp_path, monkeypatch):
     assert result.notes_failed == 1
 
 
-def test_runner_worker_timeout_counts_as_failure(tmp_path, monkeypatch):
+def test_runner_worker_timeout_counts_as_failure(
+    tmp_path, monkeypatch, batch_adapter
+):
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "hang")
-    vault, adapter, source = _make_minimal_setup(tmp_path)
+    vault, adapter, source = _make_minimal_setup(tmp_path, batch_adapter)
 
     result = asyncio.run(run_batch(
         source=source, adapter_dir=adapter, vault_root=vault,
@@ -213,9 +196,11 @@ def test_runner_worker_timeout_counts_as_failure(tmp_path, monkeypatch):
     assert result.notes_ok == 0
 
 
-def test_runner_worker_nonzero_exit_counts_as_failure(tmp_path, monkeypatch):
+def test_runner_worker_nonzero_exit_counts_as_failure(
+    tmp_path, monkeypatch, batch_adapter
+):
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "fail")
-    vault, adapter, source = _make_minimal_setup(tmp_path)
+    vault, adapter, source = _make_minimal_setup(tmp_path, batch_adapter)
 
     result = asyncio.run(run_batch(
         source=source, adapter_dir=adapter, vault_root=vault,
@@ -226,7 +211,9 @@ def test_runner_worker_nonzero_exit_counts_as_failure(tmp_path, monkeypatch):
     assert result.notes_failed == 1
 
 
-def test_runner_uses_consolidator_plan_when_available(tmp_path, monkeypatch):
+def test_runner_uses_consolidator_plan_when_available(
+    tmp_path, monkeypatch, batch_adapter
+):
     """H10 claude: consolidator happy path must drive commit, not naive fallback.
 
     fake_claude in ``augment_then_consolidate`` mode acts as a worker when
@@ -239,7 +226,7 @@ def test_runner_uses_consolidator_plan_when_available(tmp_path, monkeypatch):
     naive fallback would emit ``batch-naive-commit ...``.
     """
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment_then_consolidate")
-    vault, adapter, source = _make_minimal_setup(tmp_path)
+    vault, adapter, source = _make_minimal_setup(tmp_path, batch_adapter)
 
     result = asyncio.run(run_batch(
         source=source, adapter_dir=adapter, vault_root=vault,

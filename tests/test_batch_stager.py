@@ -88,8 +88,8 @@ def test_stage_pdf_passthrough_unchanged(tmp_path):
 
 
 @_REQUIRES_MAMMOTH
-def test_stage_docx_converted_to_md(tmp_path):
-    fixture = Path("tests/fixtures/batch/hello.docx")
+def test_stage_docx_converted_to_md(tmp_path, batch_fixtures_dir):
+    fixture = batch_fixtures_dir / "hello.docx"
     src = tmp_path / "corpus"
     (src / "lit").mkdir(parents=True)
     (src / "lit" / "doc.docx").write_bytes(fixture.read_bytes())
@@ -104,8 +104,8 @@ def test_stage_docx_converted_to_md(tmp_path):
 
 
 @_REQUIRES_PPTX
-def test_stage_pptx_converted_to_md(tmp_path):
-    fixture = Path("tests/fixtures/batch/hello.pptx")
+def test_stage_pptx_converted_to_md(tmp_path, batch_fixtures_dir):
+    fixture = batch_fixtures_dir / "hello.pptx"
     src = tmp_path / "corpus"
     (src / "bio").mkdir(parents=True)
     (src / "bio" / "deck.pptx").write_bytes(fixture.read_bytes())
@@ -196,13 +196,15 @@ def test_stage_preserves_nested_subdirs_within_group(tmp_path):
 
 
 @_REQUIRES_MAMMOTH
-def test_stage_rejects_collision_after_extension_normalization(tmp_path):
+def test_stage_rejects_collision_after_extension_normalization(
+    tmp_path, batch_fixtures_dir
+):
     """A .docx that converts to lesson.md and a sibling lesson.md must not silently merge."""
     source = tmp_path / "corpus"
     source.mkdir()
     (source / "lesson.md").write_text("FROM_MD", encoding="utf-8")
     # Use the bundled fixture docx that converts to "lesson.md"
-    fixture = Path(__file__).parent / "fixtures" / "batch" / "hello.docx"
+    fixture = batch_fixtures_dir / "hello.docx"
     shutil.copy2(fixture, source / "lesson.docx")
     run_dir = tmp_path / "run"
     run_dir.mkdir()

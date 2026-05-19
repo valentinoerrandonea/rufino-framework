@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 
 import pytest
@@ -10,9 +9,6 @@ from rufino.engine.process.batch.planner import WorkerAssignment
 from rufino.engine.process.batch.retry import retry_failed
 from rufino.engine.process.batch.validator import NoteValidation, ValidationReport
 from rufino.engine.process.manifest import parse_worker_manifest
-
-
-FAKE_DIR = Path("tests/fixtures/fake_claude").resolve()
 
 
 _MANIFEST = """
@@ -35,8 +31,9 @@ destination_path: "x/{slug}.md"
 
 
 @pytest.fixture(autouse=True)
-def _fake_claude_on_path(monkeypatch):
-    monkeypatch.setenv("PATH", str(FAKE_DIR) + os.pathsep + os.environ["PATH"])
+def _fake_claude_on_path(fake_claude_on_path):
+    """Autouse delegate to shared conftest fixture (FAKE_CLAUDE_DIR on PATH)."""
+    yield
 
 
 def _setup_failed_note(staging: Path, slug: str) -> NoteValidation:

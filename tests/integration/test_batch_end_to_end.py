@@ -7,7 +7,6 @@ Covers the production paths the inner batch tests bypass:
 """
 import asyncio
 import json
-import os
 import zipfile
 from pathlib import Path
 
@@ -19,51 +18,36 @@ pytest.importorskip("pptx")
 from rufino.engine.process.batch.runner import run_batch
 
 
-FAKE_DIR = (Path(__file__).parent.parent / "fixtures" / "fake_claude").resolve()
-FIXTURES = (Path(__file__).parent.parent / "fixtures" / "batch").resolve()
-
-
 @pytest.fixture(autouse=True)
-def _fake_claude_on_path(monkeypatch):
-    monkeypatch.setenv("PATH", str(FAKE_DIR) + os.pathsep + os.environ["PATH"])
+def _fake_claude_on_path(fake_claude_on_path):
+    """Autouse delegate to shared conftest fixture (FAKE_CLAUDE_DIR on PATH)."""
+    yield
 
 
-def _make_adapter(tmp: Path) -> Path:
-    adapter = tmp / "adapter"
-    adapter.mkdir()
-    (adapter / "manifest.yaml").write_text("""
-adapter_name: apunte-clase
-note_type: apunte_clase
-applies_when: {source_dir: inbox/, matches_pattern: ["*.md"]}
-llm: sonnet
-mode_default: full
-output_schema:
-  required:
-    title: string
-    materia: string
-triple_vocabulary: [tema-de]
-tag_axes: [{axis: materia, format: "materia/{slug}"}]
-destination_path: "apuntes/{slug}.md"
-batch_size: 10
-""")
-    (adapter / "prompt.md").write_text("# Instrucciones para el adapter\n")
-    return adapter
+# E2E tests use a slightly richer manifest (named adapter + note_type) than
+# the conftest default; everything else comes from the shared factory.
+_E2E_MANIFEST_OVERRIDES = {
+    "adapter_name": "apunte-clase",
+    "note_type": "apunte_clase",
+}
 
 
-def test_full_pipeline_end_to_end(tmp_path, monkeypatch):
+def test_full_pipeline_end_to_end(
+    tmp_path, monkeypatch, batch_adapter, batch_fixtures_dir
+):
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
 
-    adapter = _make_adapter(tmp_path)
+    adapter = batch_adapter(**_E2E_MANIFEST_OVERRIDES)
     source = tmp_path / "corpus"
     (source / "math").mkdir(parents=True)
     (source / "history").mkdir(parents=True)
     (source / "math" / "lesson.md").write_text("# math 1\n")
     (source / "math" / "scan.pdf").write_bytes(b"%PDF-1.4 fake")
     (source / "history" / "notes.docx").write_bytes(
-        (FIXTURES / "hello.docx").read_bytes()
+        (batch_fixtures_dir / "hello.docx").read_bytes()
     )
     (source / "history" / "slides.pptx").write_bytes(
-        (FIXTURES / "hello.pptx").read_bytes()
+        (batch_fixtures_dir / "hello.pptx").read_bytes()
     )
 
     vault = tmp_path / "vault"
@@ -91,7 +75,9 @@ def test_full_pipeline_end_to_end(tmp_path, monkeypatch):
     assert summary["notes_ok"] == 4
 
 
-def _make_minimal_setup(tmp_path: Path) -> tuple[Path, Path, Path]:
+def _make_minimal_setup(
+    tmp_path: Path, batch_adapter
+) -> tuple[Path, Path, Path]:
     """Smallest viable e2e input: vault dir, adapter, and a 1-note corpus.
 
     Returns ``(vault, adapter, source)``. Matches the helper used by the
@@ -99,14 +85,14 @@ def _make_minimal_setup(tmp_path: Path) -> tuple[Path, Path, Path]:
     """
     vault = tmp_path / "vault"
     vault.mkdir()
-    adapter = _make_adapter(tmp_path)
+    adapter = batch_adapter(**_E2E_MANIFEST_OVERRIDES)
     source = tmp_path / "corpus"
     (source / "math").mkdir(parents=True)
     (source / "math" / "n1.md").write_text("# n1\n", encoding="utf-8")
     return vault, adapter, source
 
 
-def _build_test_zip(tmp_path: Path) -> Path:
+def _build_test_zip(tmp_path: Path, batch_fixtures_dir: Path) -> Path:
     """Build a corpus ZIP with one ``.md``, one ``.docx``, one ``.txt``.
 
     The docx body reuses the bundled fixture so converters.convert_to_markdown
@@ -116,7 +102,7 @@ def _build_test_zip(tmp_path: Path) -> Path:
     valid but less representative of a real corpus).
     """
     zip_path = tmp_path / "corpus.zip"
-    docx_bytes = (FIXTURES / "hello.docx").read_bytes()
+    docx_bytes = (batch_fixtures_dir / "hello.docx").read_bytes()
     with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("notes/md_note.md", "# md_note\nhello from md\n")
         zf.writestr("notes/docx_note.docx", docx_bytes)
@@ -124,13 +110,15 @@ def _build_test_zip(tmp_path: Path) -> Path:
     return zip_path
 
 
-def test_e2e_zip_input_through_cli(tmp_path, monkeypatch):
+def test_e2e_zip_input_through_cli(
+    tmp_path, monkeypatch, batch_adapter, batch_fixtures_dir
+):
     """E2E with a ZIP corpus driven through the CLI: exit 0 + vault state."""
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
     vault = tmp_path / "vault"
     vault.mkdir()
-    adapter = _make_adapter(tmp_path)
-    zip_path = _build_test_zip(tmp_path)
+    adapter = batch_adapter(**_E2E_MANIFEST_OVERRIDES)
+    zip_path = _build_test_zip(tmp_path, batch_fixtures_dir)
 
     from click.testing import CliRunner
     from rufino.cli import cli
@@ -154,7 +142,9 @@ def test_e2e_zip_input_through_cli(tmp_path, monkeypatch):
     )
 
 
-def test_e2e_retry_exhausts_files_go_to_failed(tmp_path, monkeypatch):
+def test_e2e_retry_exhausts_files_go_to_failed(
+    tmp_path, monkeypatch, batch_adapter
+):
     """Worker always emits invalid output → retry exhausts → slug in failed/.
 
     Exercises the validator + retry interaction end-to-end: the worker
@@ -163,7 +153,7 @@ def test_e2e_retry_exhausts_files_go_to_failed(tmp_path, monkeypatch):
     ``failed/<slug>/error.json`` marker.
     """
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment_bad")
-    vault, adapter, source = _make_minimal_setup(tmp_path)
+    vault, adapter, source = _make_minimal_setup(tmp_path, batch_adapter)
 
     result = asyncio.run(run_batch(
         source=source, adapter_dir=adapter, vault_root=vault,
@@ -187,7 +177,9 @@ def test_e2e_retry_exhausts_files_go_to_failed(tmp_path, monkeypatch):
     )
 
 
-def test_e2e_cli_returns_127_when_claude_missing(tmp_path, monkeypatch):
+def test_e2e_cli_returns_127_when_claude_missing(
+    tmp_path, monkeypatch, batch_adapter
+):
     """CLI exit-code mapping when ``claude`` is not in PATH."""
     # Override the autouse fixture's PATH: strip the fake_claude shim AND any
     # real `claude` on the machine so subprocess.run raises
@@ -195,7 +187,7 @@ def test_e2e_cli_returns_127_when_claude_missing(tmp_path, monkeypatch):
     # guarantee no stray installation (homebrew, ~/.local/bin, /usr/local/bin)
     # interferes on dev or CI machines.
     monkeypatch.setenv("PATH", "")
-    vault, adapter, source = _make_minimal_setup(tmp_path)
+    vault, adapter, source = _make_minimal_setup(tmp_path, batch_adapter)
 
     from click.testing import CliRunner
     from rufino.cli import cli

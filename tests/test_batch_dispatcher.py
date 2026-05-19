@@ -1,5 +1,4 @@
 import asyncio
-import os
 from pathlib import Path
 
 import pytest
@@ -13,12 +12,10 @@ from rufino.engine.process.batch.errors import WorkerSessionExpiredError
 from rufino.engine.process.batch.planner import WorkerAssignment, Plan
 
 
-FAKE_DIR = (Path(__file__).parent / "fixtures" / "fake_claude").resolve()
-
-
 @pytest.fixture(autouse=True)
-def _path_with_fake_claude(monkeypatch):
-    monkeypatch.setenv("PATH", str(FAKE_DIR) + os.pathsep + os.environ["PATH"])
+def _path_with_fake_claude(fake_claude_on_path):
+    """Autouse delegate to shared conftest fixture (FAKE_CLAUDE_DIR on PATH)."""
+    yield
 
 
 def _staged_note(tmp_path: Path, group: str, slug: str) -> Path:

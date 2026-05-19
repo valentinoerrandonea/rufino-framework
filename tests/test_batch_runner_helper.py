@@ -1,6 +1,5 @@
 import asyncio
 import os
-from pathlib import Path
 
 import pytest
 
@@ -10,12 +9,10 @@ from rufino.engine.process.batch.runner_helper import (
 )
 
 
-FAKE_DIR = (Path(__file__).parent / "fixtures" / "fake_claude").resolve()
-
-
 @pytest.fixture(autouse=True)
-def _fake_on_path(monkeypatch):
-    monkeypatch.setenv("PATH", str(FAKE_DIR) + os.pathsep + os.environ["PATH"])
+def _fake_on_path(fake_claude_on_path):
+    """Autouse delegate to shared conftest fixture (FAKE_CLAUDE_DIR on PATH)."""
+    yield
 
 
 def test_run_claude_writes_outputs(tmp_path, monkeypatch):
