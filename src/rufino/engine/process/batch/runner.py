@@ -4,6 +4,8 @@ Six stages: STAGE -> PLAN -> DISPATCH -> VALIDATE+RETRY -> Q&A collect ->
 CONSOLIDATE (or naive fallback) -> COMMIT.
 """
 import json
+import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,7 +16,7 @@ from rufino.engine.process.batch.consolidator import (
     run_consolidator,
 )
 from rufino.engine.process.batch.dispatcher import dispatch
-from rufino.engine.process.batch.errors import BatchError
+from rufino.engine.process.batch.errors import BatchError, ConsolidationError
 from rufino.engine.process.batch.planner import build_plan
 from rufino.engine.process.batch.qa_pending import (
     collect_pending,
@@ -22,13 +24,17 @@ from rufino.engine.process.batch.qa_pending import (
 )
 from rufino.engine.process.batch.retry import retry_failed
 from rufino.engine.process.batch.stager import stage_corpus
-from rufino.engine.process.batch.validator import validate_worker_output
+from rufino.engine.process.batch.validator import NoteValidation, validate_worker_output
 from rufino.engine.process.batch.worker_prompt import (
     build_worker_system_prompt,
 )
+from rufino.engine.process.helpers.frontmatter import FrontmatterError, parse_frontmatter
 from rufino.engine.process.manifest import parse_worker_manifest
 from rufino.runtime.transaction_log import TransactionLog
 from rufino.runtime.vault_slug import compute_vault_slug
+
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -44,10 +50,17 @@ class BatchRunResult:
 
 
 def _new_run_id() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return f"{ts}-{uuid.uuid4().hex[:6]}"
 
 
-def _gather_concepts_top_n(vault_root: Path, n: int = 30) -> list[str]:
+def _concepts_head_alphabetical(vault_root: Path, n: int = 30) -> list[str]:
+    """First N concept slugs ordered alphabetically.
+
+    Not a relevance ranking — concepts in the alphabetical tail are invisible
+    to the worker. Acceptable for v0.1; revisit when the worker prompt needs
+    actual top-K-by-relevance.
+    """
     conceptos = vault_root / "conceptos"
     if not conceptos.exists():
         return []
@@ -66,36 +79,74 @@ def _ensure_gitignore(vault_root: Path) -> None:
     if not text.endswith("\n"):
         text += "\n"
     text += line + "\n"
-    gi.write_text(text, encoding="utf-8")
+    tmp = gi.parent / (gi.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(gi)
+
+
+def _coerce_tag_list(raw: object) -> list[str]:
+    """Coerce an arbitrarily-shaped `tags` frontmatter value into a list of
+    strings, dropping non-string entries. Guards against LLM output that emits
+    a single tag as a YAML scalar (would otherwise iterate characters)."""
+    if isinstance(raw, str):
+        return [raw]
+    if not isinstance(raw, list):
+        return []
+    return [t for t in raw if isinstance(t, str)]
 
 
 def _naive_commit_plan(
-    run_dir: Path, passed, destination_template: str,
-) -> ConsolidationPlan:
-    from rufino.engine.process.helpers.frontmatter import parse_frontmatter
-    moves = []
+    run_dir: Path,
+    passed: tuple[NoteValidation, ...],
+    destination_template: str,
+) -> tuple[ConsolidationPlan, list[NoteValidation]]:
+    """Build a commit plan in-process, without invoking an LLM consolidator.
+
+    Returns ``(plan, dropped)`` where ``dropped`` lists validated notes that
+    could not be placed (bad frontmatter, missing template variables, etc).
+    The caller is expected to demote ``dropped`` into the failure bucket so
+    the run summary reflects what actually landed.
+    """
+    moves: list[dict[str, str]] = []
     tag_map: dict[str, list[str]] = {}
+    dropped: list[NoteValidation] = []
     for nv in passed:
         slug = nv.slug
         try:
             fm, _ = parse_frontmatter(nv.augmented_path.read_text(encoding="utf-8"))
-        except Exception:
+        except FrontmatterError as e:
+            log.warning("naive plan dropped %s: frontmatter parse error: %s", slug, e)
+            dropped.append(NoteValidation(
+                slug=nv.slug, augmented_path=nv.augmented_path,
+                delta_path=nv.delta_path,
+                errors=nv.errors + (f"naive_plan_drop: frontmatter: {e}",),
+            ))
             continue
         variables = {k: v for k, v in fm.items() if isinstance(v, str)}
         variables.setdefault("slug", slug)
         try:
             dest_rel = destination_template.format(**variables)
-        except KeyError:
+        except KeyError as e:
+            log.warning(
+                "naive plan dropped %s: destination template missing key %s",
+                slug, e,
+            )
+            dropped.append(NoteValidation(
+                slug=nv.slug, augmented_path=nv.augmented_path,
+                delta_path=nv.delta_path,
+                errors=nv.errors + (f"naive_plan_drop: missing template key {e}",),
+            ))
             continue
         rel_from = nv.augmented_path.relative_to(run_dir)
         moves.append({"from": str(rel_from), "to": dest_rel})
-        for tag in fm.get("tags", []):
+        for tag in _coerce_tag_list(fm.get("tags")):
             tag_map.setdefault(tag, []).append(slug)
-    return ConsolidationPlan(
+    plan = ConsolidationPlan(
         moves=moves, concept_writes=[],
         tag_index_updates=[{"tag": t, "notes": ns} for t, ns in tag_map.items()],
-        log_entries=[f"batch-naive-commit notes={len(moves)}"],
+        log_entries=[f"batch-naive-commit notes={len(moves)} dropped={len(dropped)}"],
     )
+    return plan, dropped
 
 
 async def run_batch(
@@ -126,11 +177,13 @@ async def run_batch(
     run_dir = vault_root / ".rufino" / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     _ensure_gitignore(vault_root)
+    log.info("run_id=%s adapter=%s vault=%s", run_id, adapter_dir.name, vault_root)
 
     # STAGE
     staged = stage_corpus(source, run_dir)
     if not staged.groups:
         raise BatchError("corpus is empty after staging — nothing to process")
+    log.info("STAGE done groups=%d skipped=%d", len(staged.groups), len(staged.skipped))
 
     # PLAN
     effective_batch_size = batch_size if batch_size is not None else manifest.batch_size
@@ -140,16 +193,18 @@ async def run_batch(
     )
     plan_path = run_dir / "plan.json"
     plan_path.write_text(plan.to_json(), encoding="utf-8")
+    notes_total = sum(len(w.notes) for w in plan.workers)
+    log.info("PLAN workers=%d notes_total=%d", len(plan.workers), notes_total)
     if dry_run:
         return BatchRunResult(
             run_id=run_id, dry_run=True,
-            notes_total=sum(len(w.notes) for w in plan.workers),
+            notes_total=notes_total,
             plan_path=plan_path, commit_skipped=True,
         )
 
     # DISPATCH
     vault_slug = compute_vault_slug(vault_root)
-    concepts_top = _gather_concepts_top_n(vault_root)
+    concepts_head = _concepts_head_alphabetical(vault_root)
     effective_workers = workers if workers is not None else min(4, max(1, len(plan.workers)))
 
     def _prompt_for(assignment):
@@ -157,7 +212,7 @@ async def run_batch(
         return build_worker_system_prompt(
             manifest=manifest, adapter_prompt_text=adapter_prompt,
             assignment=assignment, vault_slug=vault_slug,
-            staging_dir=staging_dir, vault_concepts_top_n=concepts_top,
+            staging_dir=staging_dir, vault_concepts_top_n=concepts_head,
             run_id=run_id,
         )
 
@@ -166,10 +221,11 @@ async def run_batch(
         system_prompt_for=_prompt_for, vault_slug=vault_slug,
         max_workers=effective_workers, timeout_seconds=timeout_seconds,
     )
+    log.info("DISPATCH done max_workers=%d", effective_workers)
 
     # VALIDATE + RETRY
-    all_passed = []
-    all_failed = []
+    all_passed: list[NoteValidation] = []
+    all_failed: list[NoteValidation] = []
     for assignment in plan.workers:
         staging_dir = run_dir / "workers" / assignment.worker_id
         report = validate_worker_output(staging_dir, manifest)
@@ -186,37 +242,46 @@ async def run_batch(
             all_failed.extend(retry_report.failed)
         else:
             all_passed.extend(report.passed)
+    log.info("VALIDATE done passed=%d failed=%d", len(all_passed), len(all_failed))
 
     # Q&A collection
     pendings = collect_pending(run_dir)
     if pendings:
         write_questions_to_vault(pendings, vault_root)
+        log.info("Q&A wrote %d pending question(s) to vault/questions/", len(pendings))
 
-    # CONSOLIDATE (or naive fallback)
+    # CONSOLIDATE (or naive fallback). Narrow except: only known recoverable
+    # error class falls back; unknown errors propagate so bugs are loud.
     if skip_consolidator:
-        plan_obj = _naive_commit_plan(
+        plan_obj, naive_dropped = _naive_commit_plan(
             run_dir, tuple(all_passed), manifest.destination_path,
         )
+        all_failed.extend(naive_dropped)
     else:
         try:
             plan_obj = await run_consolidator(
                 run_dir=run_dir, vault_slug=vault_slug, timeout_seconds=600.0,
             )
-        except Exception:
+        except ConsolidationError as e:
+            log.warning("consolidator output unusable, falling back to naive: %s", e)
             plan_obj = None
         if plan_obj is None:
-            plan_obj = _naive_commit_plan(
+            plan_obj, naive_dropped = _naive_commit_plan(
                 run_dir, tuple(all_passed), manifest.destination_path,
             )
+            all_failed.extend(naive_dropped)
+    log.info("CONSOLIDATE done moves=%d", len(plan_obj.moves))
 
     # COMMIT
     tx = TransactionLog(run_dir / "commit.tx.json")
     commit(plan=plan_obj, vault_root=vault_root, run_dir=run_dir, tx_log=tx)
+    log.info("COMMIT done")
 
+    notes_ok = len(plan_obj.moves)
     summary = {
         "run_id": run_id,
-        "notes_total": sum(len(w.notes) for w in plan.workers),
-        "notes_ok": len(all_passed),
+        "notes_total": notes_total,
+        "notes_ok": notes_ok,
         "notes_failed": len(all_failed),
         "notes_pending_qa": len(pendings),
     }
