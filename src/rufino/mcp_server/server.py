@@ -18,8 +18,8 @@ def build_server(ql: QueryLayer):
                                   "query": {"type": "string"},
                                   "mode": {
                                       "type": "string",
-                                      "enum": ["lexical", "semantic", "hybrid"],
-                                      "default": "hybrid",
+                                      "enum": ["auto", "lexical", "semantic", "hybrid"],
+                                      "default": "auto",
                                   },
                                   "k": {
                                       "type": "integer",

@@ -31,6 +31,10 @@ class QueryLayer:
             self._reranker = CrossEncoderReranker()
         return self._reranker
 
+    def embeddings_enabled(self) -> bool:
+        """True si el embedder configurado puede producir vectores reales."""
+        return not isinstance(self.embedder, NoopEmbedder)
+
     def rebuild_indices(self) -> None:
         # Lexical (ripgrep) is index-free, nothing to rebuild.
         self._sem.rebuild_index()

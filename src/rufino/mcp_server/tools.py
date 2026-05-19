@@ -4,13 +4,16 @@ from rufino.engine.query.api import QueryLayer
 from rufino.engine.query.filters import iter_user_notes
 
 
-def search_vault(ql: QueryLayer, *, query: str, mode: str = "hybrid", k: int = 10) -> list[str]:
+def search_vault(ql: QueryLayer, *, query: str, mode: str = "auto", k: int = 10) -> list[str]:
+    if mode == "auto":
+        mode = "hybrid" if ql.embeddings_enabled() else "lexical"
     results = ql.search(query, mode=mode, k=k)
     return [r.relative_path for r in results]
 
 
 def find_note(ql: QueryLayer, *, query: str) -> str | None:
-    results = ql.search(query, mode="hybrid", k=1)
+    mode = "hybrid" if ql.embeddings_enabled() else "lexical"
+    results = ql.search(query, mode=mode, k=1)
     return results[0].relative_path if results else None
 
 
