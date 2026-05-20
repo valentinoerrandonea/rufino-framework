@@ -28,7 +28,11 @@ from rufino.engine.process.batch.qa_pending import (
 from rufino.engine.process.batch.retry import retry_failed
 from rufino.engine.process.batch.runner_helper import MAX_OUTPUT_BYTES
 from rufino.engine.process.batch.stager import stage_corpus
-from rufino.engine.process.batch.validator import NoteValidation, validate_worker_output
+from rufino.engine.process.batch.validator import (
+    NoteValidation,
+    check_compression_ratio,
+    validate_worker_output,
+)
 from rufino.engine.process.batch.worker_prompt import (
     build_worker_system_prompt,
 )
@@ -87,6 +91,20 @@ def _ensure_gitignore(vault_root: Path) -> None:
     tmp = gi.parent / (gi.name + ".tmp")
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(gi)
+
+
+def _find_staged_input(staged, slug: str) -> Path | None:
+    """Locate the staged input file whose stem matches the given slug.
+
+    Returns None when the slug was minted from a source that no longer maps
+    cleanly to a staged file (e.g. derived names) — caller treats this as a
+    silent skip for advisory checks.
+    """
+    for group_files in staged.groups.values():
+        for p in group_files:
+            if p.stem == slug:
+                return p
+    return None
 
 
 def _coerce_tag_list(raw: object) -> list[str]:
@@ -341,6 +359,19 @@ async def _run_batch_locked(
         else:
             all_passed.extend(report.passed)
     log.info("VALIDATE done passed=%d failed=%d", len(all_passed), len(all_failed))
+
+    # Compression floor check (advisory, v0.3 — logs a warning per note that
+    # falls below the floor; does NOT mark them as failed).
+    if manifest.compression_floor is not None:
+        for nv in all_passed:
+            staged_path = _find_staged_input(staged, nv.slug)
+            if staged_path is None:
+                continue
+            check_compression_ratio(
+                original=staged_path,
+                augmented=nv.augmented_path,
+                floor=manifest.compression_floor,
+            )
 
     # TRANSFORM HOOK — mutate passed notes' frontmatter in place. Misbehaving
     # hooks degrade gracefully (logged warning) so a single bad hook can't

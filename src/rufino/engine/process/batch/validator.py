@@ -188,3 +188,48 @@ def validate_worker_output(
                 errors=(f"worker produced no output for slug={slug!r}",),
             ))
     return ValidationReport(passed=tuple(passed), failed=tuple(failed))
+
+
+@dataclass(frozen=True)
+class CompressionCheck:
+    ratio: float
+    below_floor: bool
+
+
+def check_compression_ratio(
+    *,
+    original: Path,
+    augmented: Path,
+    floor: float | None,
+) -> CompressionCheck | None:
+    """Compute the word-count ratio between augmented and original body.
+
+    When ``floor`` is set and the ratio falls below it, log a warning (the
+    check is advisory: notes are not marked as failed in v0.3). Returns
+    ``None`` when ``floor`` is ``None`` (feature disabled).
+    """
+    if floor is None:
+        return None
+    orig_words = _count_body_words(original)
+    aug_words = _count_body_words(augmented)
+    if orig_words == 0:
+        return CompressionCheck(ratio=1.0, below_floor=False)
+    ratio = aug_words / orig_words
+    below = ratio < floor
+    if below:
+        log.warning(
+            "compression below floor: %s ratio=%.2f floor=%.2f "
+            "(orig=%d words, aug=%d words)",
+            augmented.name, ratio, floor, orig_words, aug_words,
+        )
+    return CompressionCheck(ratio=ratio, below_floor=below)
+
+
+def _count_body_words(path: Path) -> int:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    # Strip YAML frontmatter so the count reflects body only.
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            text = text[end + 5:]
+    return len(text.split())
