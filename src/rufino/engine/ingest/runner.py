@@ -6,6 +6,7 @@ from typing import Callable
 
 import yaml
 
+from rufino.engine._transform_hook_invoker import _maybe_apply_transform_hook
 from rufino.engine.ingest.manifest import parse_ingest_manifest, IngestAdapterManifest
 from rufino.engine.ingest.cursor import CursorStore
 from rufino.engine.ingest.dedup import DedupStore
@@ -55,6 +56,15 @@ def run_ingest(
             rufino_state_dir=rufino_state_dir,
             process_hook=process_hook,
         )
+    if manifest.output_mode == "emit_augmented":
+        # Lazy import: emit_augmented imports IngestResult/_now_iso_utc back from here.
+        from rufino.engine.ingest.emit_augmented import run_emit_augmented
+        return run_emit_augmented(
+            adapter_dir=adapter_dir,
+            manifest=manifest,
+            vault_root=vault_root,
+            rufino_state_dir=rufino_state_dir,
+        )
     raise NotImplementedError(f"output_mode {manifest.output_mode} not implemented")
 
 
@@ -101,12 +111,18 @@ def _run_emit_fact(
     skipped = 0
     errors: list[str] = []
 
+    hook_path = Path(manifest.transform_hook) if manifest.transform_hook else None
+
     for fact in facts:
         try:
             validate_fact(fact, schema=manifest.fact_schema)
         except FactSchemaError as e:
             errors.append(f"schema violation: {e}")
             continue
+
+        fact = _maybe_apply_transform_hook(
+            hook_path, fact, adapter_dir=adapter_dir,
+        )
 
         fact_id = fact[manifest.dedup_by]
         if not dedup.is_new(source=manifest.source_name, fact_id=fact_id):
@@ -184,7 +200,12 @@ def _run_import_raw(
     emitted = 0
     errors: list[str] = []
 
+    hook_path = Path(manifest.transform_hook) if manifest.transform_hook else None
+
     for item in items:
+        item = _maybe_apply_transform_hook(
+            hook_path, item, adapter_dir=adapter_dir,
+        )
         try:
             target = _safe_join(inbox, item["filename"])
         except IngestPathError as e:

@@ -10,8 +10,8 @@ from rufino.runtime.transaction_log import TransactionLog
 def _setup_run(tmp_path: Path) -> tuple[Path, Path]:
     vault = tmp_path / "vault"
     run = vault / ".rufino" / "runs" / "r1"
-    (run / "workers" / "w001" / "augmented").mkdir(parents=True)
-    (run / "workers" / "w001" / "augmented" / "n1.md").write_text(
+    (run / "workers" / "w0001" / "augmented").mkdir(parents=True)
+    (run / "workers" / "w0001" / "augmented" / "n1.md").write_text(
         "---\ntitle: n1\n---\n# body\n"
     )
     (vault / "_meta").mkdir(parents=True)
@@ -22,7 +22,7 @@ def _setup_run(tmp_path: Path) -> tuple[Path, Path]:
 def test_commit_moves_and_updates(tmp_path):
     vault, run = _setup_run(tmp_path)
     plan = ConsolidationPlan(
-        moves=[{"from": "workers/w001/augmented/n1.md", "to": "apuntes/n1.md"}],
+        moves=[{"from": "workers/w0001/augmented/n1.md", "to": "apuntes/n1.md"}],
         concept_writes=[{"path": "conceptos/dfs.md", "content": "# DFS\n", "wins_over": []}],
         tag_index_updates=[{"tag": "materia/math", "notes": ["n1"]}],
         log_entries=["batch r1 ok"],
@@ -42,13 +42,13 @@ def test_commit_moves_and_updates(tmp_path):
 def test_commit_rolls_back_on_escape(tmp_path):
     vault, run = _setup_run(tmp_path)
     bad = ConsolidationPlan(
-        moves=[{"from": "workers/w001/augmented/n1.md", "to": "../../escape.md"}],
+        moves=[{"from": "workers/w0001/augmented/n1.md", "to": "../../escape.md"}],
     )
     tx = TransactionLog(run / "commit.tx.json")
     with pytest.raises(Exception):
         commit(plan=bad, vault_root=vault, run_dir=run, tx_log=tx)
 
-    assert (run / "workers" / "w001" / "augmented" / "n1.md").exists()
+    assert (run / "workers" / "w0001" / "augmented" / "n1.md").exists()
     assert not (tmp_path / "escape.md").exists()
 
 
@@ -56,7 +56,7 @@ def test_commit_empty_plan_is_noop(tmp_path):
     vault, run = _setup_run(tmp_path)
     tx = TransactionLog(run / "commit.tx.json")
     commit(plan=ConsolidationPlan(), vault_root=vault, run_dir=run, tx_log=tx)
-    assert (run / "workers" / "w001" / "augmented" / "n1.md").exists()
+    assert (run / "workers" / "w0001" / "augmented" / "n1.md").exists()
 
 
 def test_commit_rejects_escape_in_move_from(tmp_path):
@@ -84,7 +84,7 @@ def test_rollback_after_successful_commit_reverts_all_categories(tmp_path):
     (vault / "conceptos" / "dfs.md").write_text("PRE-EXISTING\n")
 
     plan = ConsolidationPlan(
-        moves=[{"from": "workers/w001/augmented/n1.md", "to": "apuntes/n1.md"}],
+        moves=[{"from": "workers/w0001/augmented/n1.md", "to": "apuntes/n1.md"}],
         concept_writes=[{"path": "conceptos/dfs.md", "content": "# DFS NEW\n", "wins_over": []}],
         tag_index_updates=[{"tag": "materia/math", "notes": ["n1"]}],
         log_entries=["batch r1 ok"],
@@ -102,7 +102,7 @@ def test_rollback_after_successful_commit_reverts_all_categories(tmp_path):
     tx.rollback()
 
     # Everything restored:
-    assert (run / "workers" / "w001" / "augmented" / "n1.md").exists()
+    assert (run / "workers" / "w0001" / "augmented" / "n1.md").exists()
     assert not (vault / "apuntes" / "n1.md").exists()
     assert (vault / "conceptos" / "dfs.md").read_text() == "PRE-EXISTING\n"
     assert (vault / "_meta" / "_tags.md").read_text() == "# Tags\n- existing\n"
@@ -141,7 +141,7 @@ def test_commit_succeeds_when_run_twice_with_overwrites(tmp_path):
 
     # Run 1
     run1 = vault / ".rufino" / "runs" / "r1"
-    (run1 / "workers" / "w001" / "augmented").mkdir(parents=True, exist_ok=True)
+    (run1 / "workers" / "w0001" / "augmented").mkdir(parents=True, exist_ok=True)
     plan1 = ConsolidationPlan(
         concept_writes=[{"path": "conceptos/dfs.md", "content": "V1\n", "wins_over": []}],
     )
@@ -151,7 +151,7 @@ def test_commit_succeeds_when_run_twice_with_overwrites(tmp_path):
 
     # Run 2 — must succeed; baselines from run 1 must not contaminate
     run2 = vault / ".rufino" / "runs" / "r2"
-    (run2 / "workers" / "w002" / "augmented").mkdir(parents=True, exist_ok=True)
+    (run2 / "workers" / "w0002" / "augmented").mkdir(parents=True, exist_ok=True)
     plan2 = ConsolidationPlan(
         concept_writes=[{"path": "conceptos/dfs.md", "content": "V2\n", "wins_over": []}],
     )
@@ -171,13 +171,13 @@ def test_commit_snapshots_existing_destination_and_rollback_restores_old_content
     (vault / "apuntes").mkdir(parents=True)
     (vault / "apuntes" / "n1.md").write_text("OLD", encoding="utf-8")
 
-    (run_dir / "workers" / "w001" / "augmented").mkdir(parents=True)
-    (run_dir / "workers" / "w001" / "augmented" / "n1.md").write_text("NEW", encoding="utf-8")
+    (run_dir / "workers" / "w0001" / "augmented").mkdir(parents=True)
+    (run_dir / "workers" / "w0001" / "augmented" / "n1.md").write_text("NEW", encoding="utf-8")
 
     plan = ConsolidationPlan(
         moves=[
-            {"from": "workers/w001/augmented/n1.md", "to": "apuntes/n1.md"},
-            {"from": "workers/w001/augmented/missing.md", "to": "apuntes/missing.md"},
+            {"from": "workers/w0001/augmented/n1.md", "to": "apuntes/n1.md"},
+            {"from": "workers/w0001/augmented/missing.md", "to": "apuntes/missing.md"},
         ],
         concept_writes=[], tag_index_updates=[], log_entries=[],
     )
@@ -193,15 +193,15 @@ def test_commit_rejects_duplicate_destinations(tmp_path):
     """Two moves cannot target the same path within one plan."""
     vault = tmp_path / "vault"
     run_dir = tmp_path / "run"
-    aug = run_dir / "workers" / "w001" / "augmented"
+    aug = run_dir / "workers" / "w0001" / "augmented"
     aug.mkdir(parents=True)
     (aug / "a.md").write_text("A", encoding="utf-8")
     (aug / "b.md").write_text("B", encoding="utf-8")
 
     plan = ConsolidationPlan(
         moves=[
-            {"from": "workers/w001/augmented/a.md", "to": "apuntes/x.md"},
-            {"from": "workers/w001/augmented/b.md", "to": "apuntes/x.md"},
+            {"from": "workers/w0001/augmented/a.md", "to": "apuntes/x.md"},
+            {"from": "workers/w0001/augmented/b.md", "to": "apuntes/x.md"},
         ],
         concept_writes=[], tag_index_updates=[], log_entries=[],
     )
@@ -217,15 +217,15 @@ def test_commit_rejects_case_only_duplicate_destinations(tmp_path):
     difference is letter casing collide on disk; the dedupe set must catch it."""
     vault = tmp_path / "vault"
     run_dir = tmp_path / "run"
-    aug = run_dir / "workers" / "w001" / "augmented"
+    aug = run_dir / "workers" / "w0001" / "augmented"
     aug.mkdir(parents=True)
     (aug / "a.md").write_text("A", encoding="utf-8")
     (aug / "b.md").write_text("B", encoding="utf-8")
 
     plan = ConsolidationPlan(
         moves=[
-            {"from": "workers/w001/augmented/a.md", "to": "apuntes/X.md"},
-            {"from": "workers/w001/augmented/b.md", "to": "apuntes/x.md"},
+            {"from": "workers/w0001/augmented/a.md", "to": "apuntes/X.md"},
+            {"from": "workers/w0001/augmented/b.md", "to": "apuntes/x.md"},
         ],
         concept_writes=[], tag_index_updates=[], log_entries=[],
     )
@@ -240,12 +240,12 @@ def test_committer_nul_encoded_target_survives_json_roundtrip(tmp_path):
     run_dir = tmp_path / "run"
     (vault / "apuntes").mkdir(parents=True)
     (vault / "apuntes" / "n1.md").write_text("OLD", encoding="utf-8")
-    aug = run_dir / "workers" / "w001" / "augmented"
+    aug = run_dir / "workers" / "w0001" / "augmented"
     aug.mkdir(parents=True)
     (aug / "n1.md").write_text("NEW", encoding="utf-8")
 
     plan = ConsolidationPlan(
-        moves=[{"from": "workers/w001/augmented/n1.md", "to": "apuntes/n1.md"}],
+        moves=[{"from": "workers/w0001/augmented/n1.md", "to": "apuntes/n1.md"}],
         concept_writes=[], tag_index_updates=[], log_entries=[],
     )
     tx_path = run_dir / "tx.json"

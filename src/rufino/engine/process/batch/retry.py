@@ -14,7 +14,9 @@ from rufino.engine.process.batch.dispatcher import (
 )
 from rufino.engine.process.batch.errors import WorkerSessionExpiredError
 from rufino.engine.process.batch.planner import WorkerAssignment
-from rufino.engine.process.batch.runner_helper import ClaudeResult, run_claude
+from rufino.engine.process.batch.runner_helper import (
+    MAX_OUTPUT_BYTES, ClaudeResult, run_claude,
+)
 from rufino.engine.process.batch.validator import (
     NoteValidation,
     ValidationReport,
@@ -85,6 +87,11 @@ async def _retry_one(
             argv=argv, cwd=staging_dir, env=os.environ.copy(),
             timeout_seconds=timeout_seconds,
         )
+        if result.truncated:
+            log.warning(
+                "retry worker output truncated for %s (cap=%d bytes)",
+                note_path.name, MAX_OUTPUT_BYTES,
+            )
         if result.exit_code == SESSION_EXPIRED_EXIT_CODE:
             raise WorkerSessionExpiredError(
                 "Tu sesión Claude está expirada. Corré `claude login` y reintentá."

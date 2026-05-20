@@ -238,14 +238,16 @@ Correr tests:
 
 ## Cosas deferidas a propósito
 
-Estas no son bugs — son features con plan referenciado, no implementadas en v0.1.0:
+Estas no son bugs — son features con plan referenciado, no implementadas todavía:
 
 | Pieza | Estado | Plan |
 |---|---|---|
-| `transform.py` (escape hatch de código determinista) | Manifest acepta y parsea `transform_hook`, runner no lo invoca | TBD |
-| Ingest `output_mode: emit_augmented` | Manifest parsea, dispatcher inline no wireado | TBD |
-| Single-note `rufino process --mode full` | CLI exits 2; usá `process-batch` para procesar en lote | Reviving stays out of scope |
-| Embedder real (Ollama + nomic-embed-text) | Placeholder `_NoopEmbeddings` que tira NotImplementedError | TBD — plan referenciado |
+| Multi-hop graph traversal (`depth > 1`) | `GraphBackend.traverse` raisea `NotImplementedError`; forward y reverse a `depth=1` están wireados | Diferido a v0.3+ |
+| File watcher para indices | Reindex manual via `rebuild_indices()` o `mcp-server --rebuild` | Diferido a v0.3+ |
+| Output adapters consumiendo `semantic`/`hybrid` | `_LexicalQueryAdapter` es lexical-only; consumers que necesiten semántica deben llamar `rufino query --mode semantic` desde un trigger externo | Diferido a v0.3+ |
+
+Lo que **sí cerró v0.2.0** (no busques en esta tabla):
+`transform_hook`, `output_mode: emit_augmented`, single-note `rufino process --mode full`, embedder Ollama (opt-in via `rufino enable-embeddings`), forward graph traversal a `depth=1`, scheduler real (`launchd`/`cron`), vault lock, bounded worker I/O y worker IDs `:04d`.
 
 Si encontrás algo que parece roto pero está en esta tabla, **no es bug** — revisá el plan referenciado.
 

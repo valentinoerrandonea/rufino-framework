@@ -1,10 +1,14 @@
 import json
+import logging
 import os
 import shutil
 import threading
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Callable, Any
+
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -70,11 +74,38 @@ def _plist_uninstall(target: str) -> None:
         p.unlink()
 
 
+def _scheduler_uninstall(target: str) -> None:
+    """Uninstall a scheduled job through the platform-appropriate backend.
+
+    ``target`` is a ``job_id`` (e.g. ``rufino-ingest-<slug>-<adapter>``).
+    Backend-agnostic so the same handler works for launchd on macOS and
+    cron on Linux; see ``runtime.scheduler.get_backend``.
+
+    Failures are *logged but swallowed*. The TransactionLog rollback loop
+    relies on a successful return to pop the entry, so re-raising here
+    would halt the rest of the rollback. We accept the tradeoff: an
+    orphan job is recoverable later via ``rufino list-ingests`` +
+    ``rufino uninstall-ingest <name>``, whereas a stuck rollback could
+    leave half of the install in place.
+    """
+    from rufino.runtime.scheduler import get_backend
+    try:
+        get_backend().uninstall(job_id=target)
+    except Exception as e:
+        log.warning(
+            "scheduler_uninstall rollback for %r failed: %s. "
+            "Job may still be scheduled — run `rufino list-ingests` "
+            "and `rufino uninstall-ingest <name>` to clean up.",
+            target, e,
+        )
+
+
 register_rollback("rmdir", _rmdir)
 register_rollback("delete", _delete)
 register_rollback("rmdir_if_empty", _rmdir_if_empty)
 register_rollback("keychain_delete", _keychain_delete)
 register_rollback("plist_uninstall", _plist_uninstall)
+register_rollback("scheduler_uninstall", _scheduler_uninstall)
 
 
 class TransactionLog:

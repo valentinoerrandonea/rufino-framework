@@ -16,7 +16,7 @@ Augmenta notas crudas: frontmatter, body augmentado, triples tipados, tags por e
 | `light` | Solo update de indices + file move + frontmatter completion | Notas escritas a mano (por vos o Claude) que solo necesitan ser registradas + linkeadas |
 | `lint` | Valida sin modificar | CI / verificación pre-commit |
 
-**Estado actual (single-note):** `light` y `lint` operativos. `full` queda diferido — el CLI single-note exits con código 2. Para procesar en lote usá [`rufino process-batch`](#batch-processing-v010).
+**Estado actual (single-note):** `light` y `lint` operativos. Desde v0.2.0 `full` también — el CLI single-note hace un batch-of-one delegando a `run_batch` con `workers=1, batch_size=1`. Para procesar lotes grandes usá [`rufino process-batch`](#batch-processing-v010).
 
 ## Batch processing (v0.1.0+)
 
@@ -109,7 +109,7 @@ context_injectors:
   - name: <name>
     query: "<query-expression>"       # usado para inyectar contexto en el prompt
 
-transform_hook: ./transform.py        # opcional, deferido
+transform_hook: ./transform.py        # opcional; ejecuta entre VALIDATE y CONSOLIDATE (v0.2.0+)
 ```
 
 ## Validador del manifest
@@ -144,7 +144,7 @@ rufino process <note_path> --vault <X> --mode {light|full|lint} [--adapter-dir <
 ```
 
 - `--mode light` no requiere `--adapter-dir`; usa heurística para inferir dónde mover la nota.
-- `--mode full` requiere `--adapter-dir` apuntando al Process adapter relevante. **Exits 2** (single-note deferido; usá `process-batch` para procesar en lote).
+- `--mode full` requiere `--adapter-dir` apuntando al Process adapter relevante. v0.2.0 lo wirea: stagea la nota en un tempdir-of-one y delega a `run_batch` con `workers=1, batch_size=1`. Exit codes: `0` ok, `1` failure, `3` pending Q&A, `127` `claude` missing.
 - `--mode lint` valida sin modificar y sale con código 1 si hay errores.
 
 ## Ejemplo: adapter completo
@@ -161,16 +161,17 @@ Esto evita una clase entera de bugs donde un dispatcher mute state shared con un
 
 Si `update_tag_index()` o `append_to_log()` fallan **después** del LLM call exitoso, la nota source se preserva (no se `unlink()`-ea) — vas a poder retry sin perder el trabajo del LLM. Si todo OK, la source se elimina al final.
 
-## Estado v0.1.0
+## Estado v0.2.0
 
 - ✅ `mode_default: light` — operativo (registro + file move sin LLM)
 - ✅ `mode_default: lint` — operativo (validación pure)
 - ✅ Batch processing vía `rufino process-batch` — orquesta `claude` headless
-- ⏸ Single-note `rufino process --mode full` — queda diferido (exits 2); usá
-  `process-batch` apuntando a una carpeta de 1 archivo para single-note
+- ✅ Single-note `rufino process --mode full` — wrapper sobre `run_batch` con tempdir-of-one
 - ✅ Q&A loop end-to-end (worker emite pending, Rufino escribe pregunta,
   `qa-poll` resume y archiva)
-- ⏸ `transform_hook` — manifest parsea, runner no invoca
+- ✅ `transform_hook` — invocado entre VALIDATE y CONSOLIDATE con graceful degrade
+- ✅ Advisory lock por vault (`runtime/vault_lock.py`) — un segundo `process-batch` simultáneo falla rápido con "vault locked"
+- ✅ Bounded stdout/stderr capture en workers — caps cada stream a `MAX_OUTPUT_BYTES` (1MB); worker IDs `:04d` (hasta 9999 sin colisiones)
 
 ## Referencia
 

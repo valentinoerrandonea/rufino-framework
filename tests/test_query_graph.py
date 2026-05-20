@@ -26,12 +26,40 @@ def test_no_triples_returns_empty(tmp_vault: Path):
     assert backend.traverse(node="x", relation="r", depth=1, reverse=True) == []
 
 
-def test_forward_traversal_raises(tmp_vault: Path):
+def test_forward_traversal_returns_objects_for_subject(tmp_vault: Path):
+    """Forward (reverse=False): given a subject note path, return objects via relation."""
+    (tmp_vault / "clase1.md").write_text(
+        "---\ntriples:\n"
+        "  - { r: tema-de, o: ml-i }\n"
+        "  - { r: tema-de, o: regresion }\n"
+        "  - { r: expuesto-por, o: mendez }\n"
+        "---\nbody\n"
+    )
+    backend = GraphBackend(vault_root=tmp_vault)
+    backend.rebuild_index()
+    objs = backend.traverse(
+        node="clase1.md", relation="tema-de", depth=1, reverse=False,
+    )
+    paths = sorted(r.relative_path for r in objs)
+    assert paths == ["ml-i", "regresion"]
+
+
+def test_forward_traversal_no_match_returns_empty(tmp_vault: Path):
+    backend = GraphBackend(vault_root=tmp_vault)
+    backend.rebuild_index()
+    assert backend.traverse(
+        node="missing.md", relation="r", depth=1, reverse=False,
+    ) == []
+
+
+def test_traverse_depth_above_one_raises(tmp_vault: Path):
     import pytest
     backend = GraphBackend(vault_root=tmp_vault)
     backend.rebuild_index()
-    with pytest.raises(NotImplementedError):
-        backend.traverse(node="x", relation="r", depth=1, reverse=False)
+    with pytest.raises(NotImplementedError, match="depth"):
+        backend.traverse(node="x", relation="r", depth=2, reverse=False)
+    with pytest.raises(NotImplementedError, match="depth"):
+        backend.traverse(node="x", relation="r", depth=2, reverse=True)
 
 
 def test_graph_rebuild_excludes_meta_and_dot_dirs(tmp_vault: Path):

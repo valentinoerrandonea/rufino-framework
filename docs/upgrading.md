@@ -173,6 +173,23 @@ ls ~/.rufino/state/...
 rm -rf ~/.rufino && mv ~/.rufino.test-backup ~/.rufino
 ```
 
+## Notas por release
+
+### 0.1.0 → 0.2.0
+
+`migrations/0.1.0-to-0.2.0.sh` escribe per-vault state en `$RUFINO_HOME/state/vaults/<vault-slug>.yaml` (uno por adapter en `adapters/memory_loop/`) con `embeddings.enabled: false`. Resultado: tus vaults existentes siguen funcionando exactamente igual en modo lexical después del upgrade — la nueva semántica es **opt-in**.
+
+Después del upgrade, los 6 nuevos comandos disponibles:
+
+- `rufino detect-embeddings` — chequea Ollama
+- `rufino enable-embeddings --vault X --state-dir ~/.rufino/state` — activa `semantic`/`hybrid` para ese vault
+- `rufino disable-embeddings --vault X --state-dir ~/.rufino/state` — desactiva
+- `rufino install-ingest <adapter> --vault X` — materializa el cron del manifest a `launchd` (macOS) o `cron` (Linux)
+- `rufino uninstall-ingest <adapter_name> --vault X`
+- `rufino list-ingests`
+
+`rufino process --mode full` ahora funciona como wrapper sobre `run_batch` (antes salía exit 2). El resto de la API es backwards-compatible.
+
 ## Backups automáticos
 
 Cada upgrade hace backup de `~/.rufino/` (excepto `backups/` mismo, para evitar recursión) antes de aplicar nada:

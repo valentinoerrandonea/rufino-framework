@@ -37,7 +37,7 @@ def test_dispatch_writes_outputs(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
     n1 = _staged_note(tmp_path, "g", "n1")
     n2 = _staged_note(tmp_path, "g", "n2")
-    plan = _plan_with({"w001": [n1, n2]})
+    plan = _plan_with({"w0001": [n1, n2]})
 
     outcome = asyncio.run(dispatch(
         plan=plan, run_dir=tmp_path,
@@ -48,7 +48,7 @@ def test_dispatch_writes_outputs(tmp_path, monkeypatch):
     assert len(outcome.workers) == 1
     assert outcome.workers[0].exit_code == 0
 
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     assert (staging / "augmented" / "n1.md").exists()
     assert (staging / "augmented" / "n2.md").exists()
     assert (staging / "deltas" / "n1.json").exists()
@@ -72,7 +72,7 @@ def test_dispatch_parallel_smoke(tmp_path, monkeypatch):
 def test_dispatch_session_expired_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "session_expired")
     n = _staged_note(tmp_path, "g", "n1")
-    plan = _plan_with({"w001": [n]})
+    plan = _plan_with({"w0001": [n]})
     with pytest.raises(WorkerSessionExpiredError):
         asyncio.run(dispatch(
             plan=plan, run_dir=tmp_path,
@@ -84,7 +84,7 @@ def test_dispatch_session_expired_raises(tmp_path, monkeypatch):
 def test_dispatch_empty_outputs_ok(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "empty")
     n = _staged_note(tmp_path, "g", "n1")
-    plan = _plan_with({"w001": [n]})
+    plan = _plan_with({"w0001": [n]})
     outcome = asyncio.run(dispatch(
         plan=plan, run_dir=tmp_path,
         system_prompt_for=lambda a: "p", vault_slug="v",
@@ -96,28 +96,28 @@ def test_dispatch_empty_outputs_ok(tmp_path, monkeypatch):
 def test_dispatch_session_expired_one_worker_does_not_hang_siblings(
     tmp_path, monkeypatch,
 ):
-    """M15 claude: when w001 returns session_expired, the dispatcher surfaces
+    """M15 claude: when w0001 returns session_expired, the dispatcher surfaces
     WorkerSessionExpiredError to the caller in bounded time and leaves no
     half-written outputs that would confuse the validator.
 
     The dispatcher's docstring documents that siblings cannot honor
     cancellation until their ``subprocess.run`` thread returns; pinning a
-    specific outcome for w002 (file present vs absent) would encode a
+    specific outcome for w0002 (file present vs absent) would encode a
     timing race. Instead we pin the *contracts that hold deterministically*:
 
     1. ``WorkerSessionExpiredError`` propagates.
     2. The dispatch completes within ``timeout_seconds`` (no hang).
-    3. w002 leaves no half-written state — either it never wrote, or both
+    3. w0002 leaves no half-written state — either it never wrote, or both
        its augmented file and its delta file are on disk together.
     """
     monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment_then_consolidate")  # default branch
     # Per-worker overrides: dispatcher writes assignment.json with worker_id,
     # fake_claude reads it and looks up FAKE_CLAUDE_MODE_<WID_UPPER>.
-    monkeypatch.setenv("FAKE_CLAUDE_MODE_W001", "session_expired")
-    monkeypatch.setenv("FAKE_CLAUDE_MODE_W002", "augment")
+    monkeypatch.setenv("FAKE_CLAUDE_MODE_W0001", "session_expired")
+    monkeypatch.setenv("FAKE_CLAUDE_MODE_W0002", "augment")
     n1 = _staged_note(tmp_path, "g", "n1")
     n2 = _staged_note(tmp_path, "g", "n2")
-    plan = _plan_with({"w001": [n1], "w002": [n2]})
+    plan = _plan_with({"w0001": [n1], "w0002": [n2]})
 
     async def _run() -> None:
         await asyncio.wait_for(
@@ -133,13 +133,13 @@ def test_dispatch_session_expired_one_worker_does_not_hang_siblings(
     with pytest.raises(WorkerSessionExpiredError):
         asyncio.run(_run())
 
-    # Either w002 didn't run yet, or its outputs are coherent — never one
+    # Either w0002 didn't run yet, or its outputs are coherent — never one
     # without the other (no half-written state). The validator depends on
     # the (augmented, delta) pair being atomic.
-    w002_aug = tmp_path / "workers" / "w002" / "augmented" / "n2.md"
-    w002_delta = tmp_path / "workers" / "w002" / "deltas" / "n2.json"
+    w002_aug = tmp_path / "workers" / "w0002" / "augmented" / "n2.md"
+    w002_delta = tmp_path / "workers" / "w0002" / "deltas" / "n2.json"
     assert w002_aug.exists() == w002_delta.exists(), (
-        "w002 wrote one of (augmented, delta) but not the other — "
+        "w0002 wrote one of (augmented, delta) but not the other — "
         "half-written state would confuse the validator. "
         f"aug={w002_aug.exists()} delta={w002_delta.exists()}"
     )

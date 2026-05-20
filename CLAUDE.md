@@ -27,10 +27,10 @@ pytest --cov=src --cov-report=term-missing
 CLI (after install, or via `python -m rufino`):
 ```bash
 rufino version
-rufino bootstrap [--dry-run]                                  # --dry-run prints the system prompt; live launches `claude -p`
+rufino bootstrap [--dry-run]                                  # --dry-run prints the system prompt; live launches interactive `claude --system-prompt ... --allowedTools ... -- "<kickoff>"`
 rufino materialize --spec FILE --vault X --claude-home Y --state-dir Z
 rufino ingest <adapter_dir> --vault X --state-dir Y
-rufino process <note> --vault X --mode {light|full|lint}      # full is stubbed (exits 2)
+rufino process <note> --vault X --mode {light|full|lint}      # mode=full staged as tempdir-of-one and delegated to run_batch(workers=1, batch_size=1)
 rufino output <adapter_dir> --vault X
 rufino qa-poll --vault X --state-dir Y
 rufino query "..." --vault X --mode {lexical|semantic|hybrid}
@@ -59,7 +59,7 @@ The shape heterogeneity is intentional — see spec §4.3. Don't try to force un
 
 - `src/rufino/cli.py` — Click entry; one command per primitive plus `bootstrap` / `materialize` / `install-memory-loop` / `mcp-server`. The CLI is intentionally thin — orchestration lives in the engines.
 - `src/rufino/engine/<primitive>/` — primitive implementations. Each has a `manifest.py` (parser/validator) + a `dispatcher.py` or `runner.py` (the executor) + helpers.
-- `src/rufino/wizard/` — conversational bootstrap. `system_prompt_assembler.py` builds the prompt handed to `claude -p`; `spec_schema.py` validates the wizard's JSON output; `materializer.py` does the big-bang vault creation. `patterns/*.md` are vertical archetypes the wizard chooses from.
+- `src/rufino/wizard/` — conversational bootstrap. `system_prompt_assembler.py` builds the prompt handed to interactive `claude` (with `--system-prompt` + restricted `--allowedTools`); `spec_schema.py` validates the wizard's JSON output; `materializer.py` does the big-bang vault creation. `patterns/*.md` are vertical archetypes the wizard chooses from.
 - `src/rufino/mcp_server/` — `ask-rufino` MCP server (stdio) wrapping the Query layer.
 - `src/rufino/runtime/` — cross-cutting infra: `transaction_log.py` (the core of big-bang rollback), `secrets.py` (keyring), `scheduler.py` (launchd plists), `sandbox.py`, `prereq_checker.py`, `validator_base.py`.
 
@@ -90,30 +90,32 @@ Worker adapters (Ingest/Process/Output) all look like:
 ├── manifest.yaml      # required, schema per-primitive
 ├── prompt.md          # Process: required; Ingest emit_augmented: optional
 ├── template.md        # Output: required
-└── transform.py       # optional, currently parsed but execution deferred
+└── transform.py       # optional — invoked between stages with graceful-degrade on failure (v0.2.0+)
 ```
 
 Each primitive's `manifest.py` parses and validates the adapter manifest before the dispatcher will run it. Validation errors block install; warnings log.
 
-### Currently deferred (don't be surprised)
+### What landed in v0.2.0 (no longer deferred)
 
-- `transform_hook` / `transform.py` — manifest accepts the field, runner does not yet invoke it.
-- Ingest `output_mode: emit_augmented` — manifest parses, dispatcher not wired.
-- `rufino process --mode full` (single-note) — exits with code 2. For batch processing, use `rufino process-batch`. Reviving the single-note path is out of scope for v0.1.0.
-- `_NoopEmbeddings` in `cli.py` — placeholder embedder until the real Ollama wiring lands.
+The big-bang v0.2.0 release closed the 12 gaps that shipped half-wired in v0.1.0:
 
-If you see one of these and assume it's broken, check the plan docs first.
+- `transform_hook` / `transform.py` — runner invokes it between fetch/write (Ingest) and VALIDATE/CONSOLIDATE (Process); failures fall back to the original record.
+- Ingest `output_mode: emit_augmented` — streams records directly to Process in light mode.
+- `rufino process --mode full` (single-note) — staged as a tempdir-of-one and delegated to `run_batch(workers=1, batch_size=1)`.
+- Semantic embedder — opt-in via `rufino enable-embeddings --vault X`; OllamaEmbedder + cross-encoder re-rank for hybrid. Disabled by default; per-vault state at `~/.rufino/state/vaults/<slug>.yaml`.
+- Forward graph traversal — `GraphBackend.traverse(reverse=False)` operates at `depth=1`.
+- Scheduler real — `rufino install-ingest` materializes the cron to `launchd` (macOS) / `cron` (Linux).
+- Vault advisory lock — `runtime/vault_lock.py`; concurrent `process-batch`/`qa-resume` against the same vault fails the second caller fast.
+- Bounded I/O — worker stdout/stderr capped at `MAX_OUTPUT_BYTES` (1MB).
+- Worker IDs widened to `:04d`.
 
-### Deferred for v0.2+
+### Deferred for v0.3+
 
-These are tracked rough edges shipped in v0.1.0 that we explicitly chose not to fix yet. If you hit one, check it's still on the list before opening a new ticket:
+Rough edges intentionally NOT fixed in v0.2.0:
 
-- **Unbounded stdout/stderr capture** in `engine/process/batch/runner_helper.py` — a misbehaving `claude` worker could OOM the parent process. Marked with a `TODO(v0.2)`.
-- **Advisory lock per vault** — `rufino process-batch` and `qa-resume` can be invoked concurrently against the same vault and stomp each other's run dirs. v0.2 will take a flock on `<vault>/.rufino/lock`.
-- **Worker ID padding** — worker IDs render as `w001`/`w002`/… today, capped at three digits. A corpus producing >999 workers will collide. v0.2 widens to `:04d`.
-- **`transform_hook` execution** — accepted by the manifest parser, ignored by the runner. See `docs/primitives/process.md`.
-- **Ingest `output_mode: emit_augmented`** — manifest parses it, dispatcher does not branch on it.
-- **Single-note `rufino process --mode full`** — exits with code 2. Use `process-batch` instead; the single-note path is out of scope until the planner has a "batch of one" mode.
+- **Multi-hop graph traversal** (`depth > 1`) — `GraphBackend.traverse` raises `NotImplementedError`. Forward + reverse at depth=1 are wired; multi-hop is a v0.3 ticket.
+- **File watcher for indices** — semantic + graph rebuild manually via `rufino enable-embeddings` or `mcp-server --rebuild`. No auto-rebuild on note edit.
+- **Output adapter consumption of semantic queries** — `_LexicalQueryAdapter` is lexical-only; output adapters that want semantic results must call `rufino query --mode semantic` from an external trigger and template the output over the result.
 
 ## Versioning + migrations
 
@@ -126,7 +128,7 @@ Migrations are bash scripts in `migrations/`, named `<from>-to-<to>.sh`. They:
 - get tracked one-per-line in `~/.rufino/applied-migrations`
 - have `$RUFINO_HOME` available
 
-The directory contains markers for prior version transitions (`0.0.2-to-0.0.3.sh`, `0.0.3-to-0.1.0.sh`). New migrations should follow the contract in `migrations/README.md`.
+The directory contains markers for prior version transitions (`0.0.2-to-0.0.3.sh`, `0.0.3-to-0.1.0.sh`, `0.1.0-to-0.2.0.sh`). New migrations should follow the contract in `migrations/README.md`.
 
 ## Test conventions
 
@@ -138,7 +140,7 @@ The directory contains markers for prior version transitions (`0.0.2-to-0.0.3.sh
 ## Things to know before editing
 
 - **The CLI is a façade.** `src/rufino/cli.py` should stay thin — actual orchestration belongs in the engine module's dispatcher/runner. If you find yourself adding branching logic in `cli.py`, push it down.
-- **`emit_augmented`, `transform_hook`, `--mode full`, and the real embedder are deferred on purpose.** Don't implement them as part of unrelated work — they each have a referenced plan.
+- **`emit_augmented`, `transform_hook`, `--mode full`, and the OllamaEmbedder are wired as of v0.2.0.** Embeddings are opt-in per vault (`rufino enable-embeddings`). Multi-hop graph traversal (`depth > 1`) and file-watcher reindexing remain deferred.
 - **Adapter manifests are the API contract** between the wizard and the engine. Changing a manifest schema means updating the parser + validator + every adapter the wizard generates + the docs in `docs/primitives/`.
 - **Pipx + uv backend gotcha** documented in `install.sh` step 3: `pipx install --force` fails on the uv backend when the venv already exists. The installer checks `pipx list --short` and uses `reinstall` when present, `install -e` when absent. Preserve this pattern if you touch the installers.
 - **The wizard runs Claude.** `rufino bootstrap` shells out to the `claude` CLI with a system prompt and a restricted `--allowedTools` set. If you need to test the prompt without launching Claude, use `--dry-run`.

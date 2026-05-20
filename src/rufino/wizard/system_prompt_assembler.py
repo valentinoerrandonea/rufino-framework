@@ -21,10 +21,50 @@ el vault adaptado al vertical.
 ## 3. Conocimiento del runtime
 Las 6 primitives del framework: Ingest, Process, Output, Query, Memory loop, Q&A loop.
 Los 4 shapes: Worker adapter, Service primitive, Vertical config, Question template.
-Los 3 output modes del Ingest: emit_fact, import_raw, emit_augmented.
+Los 3 output modes del Ingest: `emit_facts`, `import_raw`, `emit_augmented`
+(el engine alias `emit_facts` → `emit_fact` internamente, pero la spec
+del wizard usa `emit_facts` en plural).
 Hooks de código: transform.py opcional (sandbox).
 Helpers built-in: validate_frontmatter, extract_triples, register_persons,
 promote_concepts, query_vault, ask_user.
+
+### Shape de cada Ingest source en la spec
+
+```yaml
+adapter_name: <kebab-case>
+source_name: <slug>
+output_mode: emit_facts | import_raw | emit_augmented
+auth: { ... }
+schedule: "m h dom mon dow"  # o null para on-demand
+# === emit_facts ===
+emits: [event_type, ...]
+fact_schema: { event_type: { field: type, ... } }
+destination: { facts: "_data/facts.jsonl", raw: "_data/raw.jsonl" }   # facts requerido, raw opcional
+dedup_by: "id"                                                         # string, el field de cada record a usar como key
+# === import_raw ===
+target_inbox: "inbox/path/"
+process_with: "<process-adapter-name>"
+trigger: "immediate" | "defer"
+# === emit_augmented ===
+process_inline_with: "<process-adapter-name>"
+# === opcional para cualquier output_mode ===
+fetcher_body: |                                                        # opcional — string con el body completo de fetcher.py
+  def fetch(cursor):
+      ...
+      return records, new_cursor
+```
+
+Si conocés cómo se hace el fetch concreto (API/CSV/etc) y la auth, **emití
+``fetcher_body`` con el body completo de ``fetcher.py``** — así el adapter
+queda operativo desde el bootstrap. Si no, omitilo: el materializer escribe
+un scaffold que lanza ``NotImplementedError`` y el adapter queda en estado
+"ready for hand-edit".
+
+Tanto los sources como las entries de ``processing[]`` aceptan
+``transform_hook_body`` opcional. Si lo proveés, el materializer escribe
+``transform.py`` en el adapter dir y agrega ``transform_hook: transform.py``
+al manifest. El runtime invoca ``transform()`` entre fetch/write (Ingest) o
+VALIDATE/CONSOLIDATE (Process); fallos degradan al record original.
 
 ## 4. Patterns iniciales
 
@@ -48,10 +88,34 @@ Patterns son combinables — un vertical real puede usar 2-3 mezclados.
 ## 8. Output esperado
 Cuando todos los objetivos estén cubiertos + user confirme, invocá
 `rufino materialize --spec <spec.json> --vault <vault_path> --claude-home <claude_home> --state-dir <state_dir>` con la spec
-completa del sistema a armar. Pasá también `--install-hooks` o
-`--no-install-hooks` según lo que el user haya respondido (regla operativa 8).
-La spec sigue el schema WizardSpec (campos: vertical_name, patterns,
-entities, sources, processing, outputs, vocabulary).
+completa del sistema a armar. Pasá también `--install-hooks` /
+`--no-install-hooks` (regla operativa 8) según lo que el user haya
+respondido. La decisión de embeddings (regla operativa 9) NO se pasa
+acá: se aplica después con `rufino enable-embeddings` si el user dijo
+que sí. La spec sigue el schema WizardSpec (campos: vertical_name,
+patterns, entities, sources, processing, outputs, vocabulary).
+
+### Output esperado (detallado)
+
+Cada entrada de `processing[]` DEBE incluir `prompt_instructions`: un
+string auto-contenido y operativo (no placeholder) que un worker Claude
+headless lee para procesar una nota — describí qué extraer, qué campos
+llenar, qué triples emitir, y poné al menos un ejemplo del vertical.
+
+Cada entrada de `outputs[]` DEBE incluir `template_body`: el cuerpo
+Jinja2 del template listo para renderizar, no una referencia a archivo.
+
+Cada entrada de `sources[]` con cadencia DEBE incluir `schedule` como
+expresión cron de 5 campos (`m h dom mon dow`).
+
+Después de materialize:
+1. Si el user pidió embeddings (regla operativa 9), corré
+   `rufino detect-embeddings` y, si pasa, `rufino enable-embeddings --vault <vault>`.
+2. Si el user dijo que tenía corpus inicial (regla operativa 10),
+   invocá `rufino process-batch <source_dir> --vault <vault> --adapter <process_adapter>`
+   y mostrale el resumen.
+3. Para cada `sources[]` con `schedule`, ofrecé `rufino install-ingest`
+   (regla operativa 12). Si el user pospone, ok — el adapter queda escrito.
 
 ## 9. Features distintivas — comunicar siempre en el big bang
 - MCP server ("le preguntás al vault desde cualquier conversación con Claude") — siempre activo, uno por vault (`ask-rufino-<slug>`)

@@ -5,6 +5,14 @@ import pytest
 import yaml
 
 
+# Some macOS dev environments end up with libomp.dylib initialized twice
+# (once by the system Python, once by torch when sentence-transformers is
+# imported). The OpenMP runtime aborts the process when it detects this.
+# Setting this lets tests that exercise the cross-encoder fall through to
+# the wider catch in QueryLayer.search instead of crashing pytest.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
+
 # CWD-independent anchor: tests/conftest.py -> tests/ -> tests/fixtures/...
 FAKE_CLAUDE_DIR = (Path(__file__).parent / "fixtures" / "fake_claude").resolve()
 BATCH_FIXTURES = (Path(__file__).parent / "fixtures" / "batch").resolve()

@@ -136,7 +136,7 @@ def test_validate_failure_triggers_retry(tmp_path, monkeypatch, batch_adapter):
     )
     assert result.notes_ok == 0
     run_dir = vault / ".rufino" / "runs" / result.run_id
-    failed_marker = run_dir / "workers" / "w001" / "failed" / "n1" / "error.json"
+    failed_marker = run_dir / "workers" / "w0001" / "failed" / "n1" / "error.json"
     assert failed_marker.exists(), (
         "retry should have bounced the note to failed/ after exhausting attempts"
     )

@@ -18,7 +18,7 @@ Si solo querés escribir notas a mano dentro del vault, **no necesitás Ingest**
 | `import_raw` | Docs largos sin estructura en `inbox/` | Sí — invoca el Process adapter declarado en `process_with` | PDFs, papers, contratos, capturas largas — todo lo que necesita LLM |
 | `emit_augmented` | Streaming directo a Process sin paso intermedio en disco | Sí (integrado) | Transcripts en vivo, scrapes donde el raw no tiene valor |
 
-**Importante (v0.0.2):** `emit_augmented` está **deferido a v1.1**. El manifest se acepta y valida, pero el dispatcher inline no está wireado — el adapter no corre.
+**v0.2.0:** los tres modos están wireados. `emit_augmented` streamea cada record directamente al Process adapter declarado en `process_inline_with` (modo light — tags + processing-log, sin LLM ni adapter dir).
 
 ## Manifest schema
 
@@ -48,11 +48,11 @@ target_inbox: <relative-path>         # ej: rufino/inbox/
 process_with: <process-adapter-name>  # ej: apunte-clase
 trigger: immediate | defer            # default: immediate
 
-# === emit_augmented-specific (DEFERIDO a v1.1) ===
+# === emit_augmented-specific ===
 process_inline_with: <process-adapter-name>  # required
 
 # === opcional ===
-transform_hook: ./transform.py        # parsed, no invocado en v0.0.2
+transform_hook: ./transform.py        # ejecutado entre fetch y write (v0.2.0+)
 ```
 
 ## Helpers expuestos al adapter
@@ -159,12 +159,13 @@ Bloquea install (errors) o loggea (warnings):
 - **Errors:** schema YAML mal formado, required field faltante, `output_mode` desconocido, `destination` path absoluto, `process_with` apunta a adapter inexistente, `keychain_service` ya en uso por otro adapter, `dedup_by` no está en `fact_schema`, `transform_hook` declarado pero archivo no existe / no ejecutable.
 - **Warnings:** `auth.type=none` con `output_mode=emit_fact` (probable typo), `schedule` muy frecuente (<5 min — riesgo de rate limit).
 
-## Estado v0.0.2
+## Estado v0.2.0
 
 - ✅ `emit_fact` — operativo
 - ✅ `import_raw` — operativo (push immediato al Process declarado en `process_with`)
-- ⏸ `emit_augmented` — manifest se parsea + valida, dispatcher inline diferido a v1.1
-- ⏸ `transform_hook` — manifest acepta el campo, runner no lo invoca (deferido)
+- ✅ `emit_augmented` — streaming inline a Process en modo light
+- ✅ `transform_hook` — invocado entre fetch y write con graceful degrade ante errores
+- ✅ Scheduler real — `rufino install-ingest <adapter>` materializa el cron a `launchd` (macOS) / `cron` (Linux)
 
 ## Referencia
 

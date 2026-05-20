@@ -10,6 +10,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+import yaml
+
+from rufino.engine._transform_hook_invoker import _maybe_apply_transform_hook
 from rufino.engine.process.batch.committer import commit
 from rufino.engine.process.batch.consolidator import (
     ConsolidationPlan,
@@ -23,14 +26,16 @@ from rufino.engine.process.batch.qa_pending import (
     write_questions_to_vault,
 )
 from rufino.engine.process.batch.retry import retry_failed
+from rufino.engine.process.batch.runner_helper import MAX_OUTPUT_BYTES
 from rufino.engine.process.batch.stager import stage_corpus
 from rufino.engine.process.batch.validator import NoteValidation, validate_worker_output
 from rufino.engine.process.batch.worker_prompt import (
     build_worker_system_prompt,
 )
 from rufino.engine.process.helpers.frontmatter import FrontmatterError, parse_frontmatter
-from rufino.engine.process.manifest import parse_worker_manifest
+from rufino.engine.process.manifest import WorkerAdapterManifest, parse_worker_manifest
 from rufino.runtime.transaction_log import TransactionLog
+from rufino.runtime.vault_lock import VaultLockedError, vault_lock
 from rufino.runtime.vault_slug import compute_vault_slug
 
 
@@ -93,6 +98,70 @@ def _coerce_tag_list(raw: object) -> list[str]:
     if not isinstance(raw, list):
         return []
     return [t for t in raw if isinstance(t, str)]
+
+
+def _apply_process_transform_hooks(
+    passed: tuple[NoteValidation, ...] | list[NoteValidation],
+    *,
+    manifest: WorkerAdapterManifest,
+    adapter_dir: Path,
+) -> None:
+    """Run ``manifest.transform_hook`` against each passed note's frontmatter.
+
+    Called between VALIDATE and CONSOLIDATE. The hook sees the parsed
+    frontmatter dict and may mutate it; the mutated dict is re-serialized
+    back to the same augmented file in place. Body is preserved verbatim.
+
+    Errors (frontmatter parse, hook failure) are logged and the note is left
+    unchanged — per-note try/except so one bad note never aborts the run.
+
+    Note: any non-JSON-native YAML scalars in the frontmatter (e.g.,
+    ``datetime.date``, sets, tuples) become strings after the hook's JSON
+    round-trip. This is intentional given the primitive's JSON contract.
+    """
+    if manifest.transform_hook is None:
+        return
+    hook_path = Path(manifest.transform_hook)
+    for nv in passed:
+        try:
+            text = nv.augmented_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            log.warning(
+                "transform_hook: cannot read %s, skipping: %s",
+                nv.augmented_path, e,
+            )
+            continue
+        # Defensive: validator should reject FM-less augmented files
+        # upstream. If somehow one slips through, skip rather than
+        # silently turning a no-FM note into a has-FM note.
+        if not text.startswith("---\n"):
+            continue
+        try:
+            fm, body = parse_frontmatter(text)
+        except FrontmatterError as e:
+            log.warning(
+                "transform_hook: cannot parse %s, skipping: %s",
+                nv.augmented_path, e,
+            )
+            continue
+        new_fm = _maybe_apply_transform_hook(
+            hook_path, dict(fm), adapter_dir=adapter_dir,
+        )
+        if new_fm is fm or new_fm == fm:
+            # No change (hook missing, errored, or returned same content).
+            continue
+        try:
+            dumped = yaml.safe_dump(
+                new_fm, sort_keys=False, allow_unicode=True,
+            )
+            nv.augmented_path.write_text(
+                f"---\n{dumped}---\n{body}", encoding="utf-8",
+            )
+        except (OSError, yaml.YAMLError) as e:
+            log.warning(
+                "transform_hook: cannot write back %s, leaving unchanged: %s",
+                nv.augmented_path, e,
+            )
 
 
 def _naive_commit_plan(
@@ -164,6 +233,29 @@ async def run_batch(
     adapter_dir = adapter_dir.expanduser().resolve()
     source = source.expanduser().resolve()
 
+    try:
+        with vault_lock(vault_root, wait=False):
+            return await _run_batch_locked(
+                source=source, adapter_dir=adapter_dir, vault_root=vault_root,
+                workers=workers, batch_size=batch_size, dry_run=dry_run,
+                skip_consolidator=skip_consolidator,
+                timeout_seconds=timeout_seconds,
+            )
+    except VaultLockedError as e:
+        raise BatchError(str(e)) from e
+
+
+async def _run_batch_locked(
+    *,
+    source: Path,
+    adapter_dir: Path,
+    vault_root: Path,
+    workers: int | None,
+    batch_size: int | None,
+    dry_run: bool,
+    skip_consolidator: bool,
+    timeout_seconds: float,
+) -> BatchRunResult:
     if not adapter_dir.is_dir():
         raise BatchError(f"adapter_dir {adapter_dir} is not a directory")
     manifest_path = adapter_dir / "manifest.yaml"
@@ -216,12 +308,18 @@ async def run_batch(
             run_id=run_id,
         )
 
-    await dispatch(
+    outcome = await dispatch(
         plan=plan, run_dir=run_dir,
         system_prompt_for=_prompt_for, vault_slug=vault_slug,
         max_workers=effective_workers, timeout_seconds=timeout_seconds,
     )
     log.info("DISPATCH done max_workers=%d", effective_workers)
+    if outcome.truncated_count:
+        log.warning(
+            "DISPATCH truncated_workers=%d cap=%d bytes "
+            "(revisar logs si el output incompleto causó fallos downstream)",
+            outcome.truncated_count, MAX_OUTPUT_BYTES,
+        )
 
     # VALIDATE + RETRY
     all_passed: list[NoteValidation] = []
@@ -243,6 +341,14 @@ async def run_batch(
         else:
             all_passed.extend(report.passed)
     log.info("VALIDATE done passed=%d failed=%d", len(all_passed), len(all_failed))
+
+    # TRANSFORM HOOK — mutate passed notes' frontmatter in place. Misbehaving
+    # hooks degrade gracefully (logged warning) so a single bad hook can't
+    # abort the run. Runs between VALIDATE and CONSOLIDATE so the
+    # consolidator sees the post-hook frontmatter.
+    _apply_process_transform_hooks(
+        all_passed, manifest=manifest, adapter_dir=adapter_dir,
+    )
 
     # Q&A collection
     pendings = collect_pending(run_dir)

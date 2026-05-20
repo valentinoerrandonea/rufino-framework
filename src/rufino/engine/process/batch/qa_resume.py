@@ -30,7 +30,7 @@ from rufino.engine.process.batch.errors import (
 )
 from rufino.engine.process.batch.planner import WorkerAssignment
 from rufino.engine.process.batch.retry import _write_single_note_assignment
-from rufino.engine.process.batch.runner_helper import run_claude
+from rufino.engine.process.batch.runner_helper import MAX_OUTPUT_BYTES, run_claude
 from rufino.engine.process.batch.validator import validate_one
 from rufino.engine.process.batch.worker_prompt import (
     build_worker_system_prompt,
@@ -38,6 +38,7 @@ from rufino.engine.process.batch.worker_prompt import (
 from rufino.engine.process.helpers.frontmatter import parse_frontmatter
 from rufino.engine.process.manifest import parse_worker_manifest
 from rufino.runtime.transaction_log import TransactionLog
+from rufino.runtime.vault_lock import VaultLockedError, vault_lock
 
 
 log = logging.getLogger(__name__)
@@ -118,6 +119,18 @@ async def resume_pending_qa(
     worker output absent or invalid). Raises ``BatchError`` only when the
     question file itself is malformed in a security-sensitive way.
     """
+    try:
+        with vault_lock(vault_root, wait=False):
+            return await _resume_pending_qa_locked(
+                vault_root=vault_root, question_file=question_file,
+            )
+    except VaultLockedError as e:
+        raise BatchError(str(e)) from e
+
+
+async def _resume_pending_qa_locked(
+    *, vault_root: Path, question_file: Path,
+) -> bool:
     meta = _read_question(question_file)
     if not meta.get("answer"):
         return False
@@ -216,6 +229,11 @@ async def resume_pending_qa(
     result = await run_claude(
         argv=argv, cwd=staging_dir, env=env, timeout_seconds=300.0,
     )
+    if result.truncated:
+        log.warning(
+            "qa-resume worker output truncated for %s (cap=%d bytes)",
+            slug, MAX_OUTPUT_BYTES,
+        )
     if result.exit_code == SESSION_EXPIRED_EXIT_CODE:
         raise WorkerSessionExpiredError(
             "Tu sesión Claude está expirada. Corré `claude login`."

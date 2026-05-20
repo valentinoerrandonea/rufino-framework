@@ -184,12 +184,12 @@ def test_validator_propagates_unexpected_bug(tmp_path):
 def test_validator_synthesizes_failure_for_missing_augmented(tmp_path):
     """Every assignment note that produces neither augmented nor pending is a failure."""
     manifest = parse_worker_manifest(_MANIFEST)
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     staging.mkdir(parents=True)
     # Worker wrote nothing — no augmented/, no pending/
 
     assignment = WorkerAssignment(
-        worker_id="w001", group="root",
+        worker_id="w0001", group="root",
         notes=(tmp_path / "inbox" / "root" / "n1.md",),
     )
     report = validate_worker_output(staging, manifest, assignment=assignment)
@@ -203,7 +203,7 @@ def test_validator_flags_aug_plus_pending_as_failure(tmp_path):
     """Malformed worker output: both augmented and pending for the same slug
     must surface as a failure rather than letting precedence silently pick one."""
     manifest = parse_worker_manifest(_MANIFEST)
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     (staging / "augmented").mkdir(parents=True)
     (staging / "pending").mkdir(parents=True)
     (staging / "deltas").mkdir(parents=True)
@@ -215,7 +215,7 @@ def test_validator_flags_aug_plus_pending_as_failure(tmp_path):
         '{"trigger": "t", "context": "c"}', encoding="utf-8",
     )
     assignment = WorkerAssignment(
-        worker_id="w001", group="root",
+        worker_id="w0001", group="root",
         notes=(tmp_path / "inbox" / "root" / "n1.md",),
     )
     report = validate_worker_output(staging, manifest, assignment=assignment)
@@ -229,7 +229,7 @@ def test_validator_detects_stem_collision_within_assignment(tmp_path):
     must flag the second occurrence as a failure rather than silently
     misreporting using the first note's artifacts."""
     manifest = parse_worker_manifest(_MANIFEST)
-    staging = tmp_path / "workers" / "w001"
+    staging = tmp_path / "workers" / "w0001"
     (staging / "augmented").mkdir(parents=True)
     (staging / "deltas").mkdir(parents=True)
     (staging / "augmented" / "n1.md").write_text(
@@ -237,7 +237,7 @@ def test_validator_detects_stem_collision_within_assignment(tmp_path):
     )
     (staging / "deltas" / "n1.json").write_text("{}", encoding="utf-8")
     assignment = WorkerAssignment(
-        worker_id="w001", group="root",
+        worker_id="w0001", group="root",
         notes=(
             tmp_path / "inbox" / "root" / "a" / "n1.md",
             tmp_path / "inbox" / "root" / "b" / "n1.md",

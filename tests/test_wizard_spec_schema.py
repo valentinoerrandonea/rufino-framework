@@ -5,18 +5,49 @@ import pytest
 from rufino.wizard.spec_schema import SpecError, WizardSpec, validate_spec
 
 
+# Schema-valid minimal fixture. Mirrors the v0.2 strict shape — each Ingest /
+# Process / Output entry carries the fields the materializer needs to write
+# adapters end-to-end (manifest + prompt + template).
 VALID_SPEC = {
     "vertical_name": "facultad",
     "patterns": ["long_documents_extraction", "person_centric_tracking"],
     "entities": ["apunte_clase", "materia", "profesor"],
     "sources": [
-        {"adapter_name": "drive-pdfs", "output_mode": "import_raw"},
+        {
+            "adapter_name": "drive-pdfs",
+            "source_name": "gdrive",
+            "output_mode": "import_raw",
+            "schedule": None,
+            "auth": {"type": "none"},
+            "target_inbox": "inbox/cufona/",
+            "process_with": "apunte-clase",
+            "trigger": "immediate",
+        },
     ],
     "processing": [
-        {"adapter_name": "apunte-clase", "note_type": "apunte_clase"},
+        {
+            "adapter_name": "apunte-clase",
+            "note_type": "apunte_clase",
+            "applies_when": {"source_dir": "inbox/"},
+            "llm": "sonnet",
+            "output_schema": {"required": {"title": "string"}, "optional": {}},
+            "triple_vocabulary": ["tema-de"],
+            "tag_axes": [{"axis": "materia", "format": "materia/<slug>"}],
+            "destination_path": "apuntes/{slug}.md",
+            "qa_triggers": [],
+            "context_injectors": [],
+            "batch_size": 10,
+            "prompt_instructions": "# Procesá apuntes\n",
+        },
     ],
     "outputs": [
-        {"adapter_name": "digest-semanal", "cron": "0 18 * * 5"},
+        {
+            "adapter_name": "digest-semanal",
+            "trigger": {"type": "cron", "expression": "0 18 * * 5"},
+            "query": [{"name": "all", "expression": "tag:apunte"}],
+            "delivery": [{"channel": "file", "path": "digests/{date}.md"}],
+            "template_body": "# Digest semanal\n",
+        },
     ],
     "vocabulary": {
         "apunte_clase": "apuntes/<materia>/<YYYY-MM-DD>-<slug>.md",
@@ -94,19 +125,18 @@ def test_validate_spec_rejects_non_list_collections(field):
 
 def test_spec_is_deeply_immutable():
     spec = validate_spec(VALID_SPEC)
+    # sources[0] is now a frozen IngestSpec dataclass — attribute assignment fails.
     with pytest.raises((TypeError, AttributeError)):
-        spec.sources[0]["adapter_name"] = "pwned"  # type: ignore[index]
+        spec.sources[0].adapter_name = "pwned"  # type: ignore[misc]
     with pytest.raises((TypeError, AttributeError)):
         spec.vocabulary["apunte_clase"] = "pwned"  # type: ignore[index]
 
 
 def test_spec_blocks_nested_dict_mutation():
-    nested_spec = validate_spec({
-        **VALID_SPEC,
-        "sources": [{"adapter_name": "drive-pdfs", "config": {"key": "v"}}],
-    })
+    """Nested mappings inside typed specs (e.g. auth) are frozen recursively."""
+    spec = validate_spec(VALID_SPEC)
     with pytest.raises((TypeError, AttributeError)):
-        nested_spec.sources[0]["config"]["key"] = "pwned"  # type: ignore[index]
+        spec.sources[0].auth["type"] = "pwned"  # type: ignore[index]
 
 
 @pytest.mark.parametrize("bad_entity", [
@@ -168,3 +198,61 @@ def test_validate_spec_rejects_vocabulary_key_with_uppercase_when_entity_valid()
     bad["entities"] = list(VALID_SPEC["entities"]) + ["BadKey"]
     with pytest.raises(SpecError):
         validate_spec(bad)
+
+
+def _emit_facts_spec_dict() -> dict:
+    return {
+        "vertical_name": "v",
+        "patterns": ["discrete_events_with_metadata"],
+        "entities": [],
+        "sources": [{
+            "adapter_name": "a",
+            "source_name": "x",
+            "output_mode": "emit_facts",
+            "auth": {},
+            "emits": ["meeting"],
+            "fact_schema": {"meeting": {}},
+            "destination": {"facts": "facts.jsonl"},
+            "dedup_by": "id",
+        }],
+        "processing": [],
+        "outputs": [],
+        "vocabulary": {},
+    }
+
+
+def test_emit_facts_requires_destination_mapping():
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["destination"] = "facts.jsonl"  # string — debe ser rechazada
+    with pytest.raises(SpecError, match="destination"):
+        validate_spec(bad)
+
+
+def test_emit_facts_requires_facts_key_in_destination():
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["destination"] = {"raw": "raw.jsonl"}  # falta 'facts'
+    with pytest.raises(SpecError, match="facts"):
+        validate_spec(bad)
+
+
+def test_emit_facts_dedup_by_must_be_string():
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["dedup_by"] = ["id", "name"]  # list, debe ser str
+    with pytest.raises(SpecError, match="dedup_by"):
+        validate_spec(bad)
+
+
+def test_emit_facts_destination_raw_must_be_string_if_present():
+    bad = _emit_facts_spec_dict()
+    bad["sources"][0]["destination"] = {"facts": "facts.jsonl", "raw": ["raw.jsonl"]}
+    with pytest.raises(SpecError, match="raw"):
+        validate_spec(bad)
+
+
+def test_emit_facts_valid_spec_passes():
+    """Sanity: una spec emit_facts con shape correcta es aceptada."""
+    ok = _emit_facts_spec_dict()
+    spec = validate_spec(ok)
+    src = spec.sources[0]
+    assert src.dedup_by == "id"
+    assert src.destination["facts"] == "facts.jsonl"

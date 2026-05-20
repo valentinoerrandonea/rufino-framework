@@ -33,7 +33,7 @@ Reglas comunes que aplican a casi todos los manifests:
 - **Tag axes sin overlap** entre sí.
 - **Paths absolutos prohibidos** en `destination_path` — siempre relativos al vault. El validador rechaza paths que empiezan con `/` o paths que se escapan vía `..`.
 - **Referencias a otros adapters** (ej: `process_with: <name>`) — el target tiene que existir.
-- **Si declara `transform_hook`**: archivo existe + es ejecutable + smoke test pasa en sandbox con input dummy. *Nota: el runner real está deferido — el validador parsea el campo pero no corre el smoke todavía.*
+- **Si declara `transform_hook`**: archivo existe + path no se escapa de `adapter_dir`. El runner lo invoca entre fetch/write (Ingest) o entre VALIDATE/CONSOLIDATE (Process) con graceful degrade ante errores.
 - **Si declara `template`**: archivo existe + placeholders válidos.
 
 El validador vive en `src/rufino/runtime/validator_base.py` (clase base + protocolo) y se especializa por shape en cada engine.
@@ -48,7 +48,7 @@ El validador vive en `src/rufino/runtime/validator_base.py` (clase base + protoc
 ingest/<adapter_name>/
 ├── manifest.yaml         # required
 ├── fetcher.py            # opcional: si querés lógica de fetch custom
-└── transform.py          # opcional, deferred a un plan futuro
+└── transform.py          # opcional — invocado entre fetch y write (v0.2.0+)
 ```
 
 ### Manifest
@@ -82,7 +82,7 @@ trigger: immediate | defer            # default: immediate
 process_inline_with: <process-adapter-name>
 
 # === opcional ===
-transform_hook: ./transform.py        # parsed, no invocado todavía
+transform_hook: ./transform.py        # opcional — invocado entre fetch y write (v0.2.0+)
 ```
 
 ### Ejemplo: Belo (transacciones financieras)
@@ -166,7 +166,7 @@ Si tu adapter no tiene `fetcher.py`, el runner usa un fetcher genérico — úti
 process/<adapter_name>/
 ├── manifest.yaml         # required
 ├── prompt.md             # required
-└── transform.py          # opcional, deferred a v1.1
+└── transform.py          # opcional — invocado entre VALIDATE y CONSOLIDATE (v0.2.0+)
 ```
 
 ### Manifest
@@ -205,7 +205,7 @@ qa_triggers:
 context_injectors:
   - { name: <name>, query: "<query-expression>" }
 
-transform_hook: ./transform.py        # opcional, deferido
+transform_hook: ./transform.py        # opcional — invocado entre VALIDATE y CONSOLIDATE (v0.2.0+)
 ```
 
 ### Ejemplo: apunte-clase (vertical facultad)
@@ -296,7 +296,7 @@ Markdown con frontmatter completo + body augmentado: resumen 3-5 bullets + desar
 output/<adapter_name>/
 ├── manifest.yaml         # required
 ├── templates/<name>.md   # required (typical layout)
-└── transform.py          # opcional, deferido
+└── transform.py          # opcional — invocado tras render del output (v0.2.0+)
 ```
 
 ### Manifest

@@ -82,6 +82,31 @@ def test_list_triples_for_node(tmp_vault: Path):
     assert "c.md" in results
 
 
+def test_list_triples_for_node_forward(tmp_vault: Path):
+    """reverse=False returns objects the subject note points to."""
+    (tmp_vault / "c.md").write_text(
+        "---\ntriples:\n"
+        "  - { r: tema-de, o: ml-i }\n"
+        "  - { r: tema-de, o: regresion }\n"
+        "---\nbody\n"
+    )
+    ql = _make_ql(tmp_vault)
+    results = list_triples_for_node(
+        ql, node="c.md", relation="tema-de", reverse=False,
+    )
+    assert sorted(results) == ["ml-i", "regresion"]
+
+
+def test_list_triples_schema_reverse_default():
+    """The MCP inputSchema for list_triples_for_node must document reverse default=False."""
+    import inspect
+    from rufino.mcp_server.server import build_server
+    src = inspect.getsource(build_server)
+    assert '"default": False' in src, (
+        "list_triples_for_node schema must document 'reverse' default=False"
+    )
+
+
 def test_vault_stats_excludes_meta_and_dot_dirs(tmp_vault: Path):
     """Notes inside _meta/, .obsidian/, .git/ must not be counted."""
     (tmp_vault / "real.md").write_text("user note")
@@ -139,8 +164,8 @@ def test_search_schema_constrains_mode_and_k(tmp_vault: Path):
     # We rely on the fact that the schema was authored in server.py:
     import inspect
     src = inspect.getsource(build_server)
-    assert '"enum": ["lexical", "semantic", "hybrid"]' in src, (
-        "search_vault schema must constrain 'mode' to an enum"
+    assert '"enum": ["auto", "lexical", "semantic", "hybrid"]' in src, (
+        "search_vault schema must constrain 'mode' to an enum incl. 'auto'"
     )
     assert '"minimum": 1' in src and '"maximum": 100' in src, (
         "search_vault schema must constrain 'k' to a sensible range"
@@ -165,3 +190,40 @@ def test_call_tool_errors_do_not_leak_vault_path(tmp_vault: Path):
     # Inner-level message references the relative_path, not vault_root — OK
     # because the wrapper in server.py is responsible for final redaction.
     assert str(tmp_vault) not in msg
+
+
+def test_find_note_works_on_vault_without_embeddings(tmp_vault: Path) -> None:
+    """Regression: C1 — find_note debe funcionar en vault virgen (NoopEmbedder)."""
+    from rufino.runtime.embedder.resolve import NoopEmbedder
+
+    (tmp_vault / "alpha.md").write_text("# alpha\nHola desde alpha.", encoding="utf-8")
+    (tmp_vault / "beta.md").write_text("# beta\nNada que ver.", encoding="utf-8")
+
+    ql = QueryLayer(vault_root=tmp_vault, embedder=NoopEmbedder())
+    result = find_note(ql, query="alpha")
+    assert result == "alpha.md"
+
+
+def test_search_vault_auto_mode_falls_back_to_lexical_without_embeddings(tmp_vault: Path) -> None:
+    """search_vault con mode='auto' (default nuevo) usa lexical en vault virgen."""
+    from rufino.runtime.embedder.resolve import NoopEmbedder
+
+    (tmp_vault / "alpha.md").write_text("# alpha\nHola desde alpha.", encoding="utf-8")
+
+    ql = QueryLayer(vault_root=tmp_vault, embedder=NoopEmbedder())
+    result = search_vault(ql, query="alpha")
+    assert "alpha.md" in result
+
+
+def test_search_vault_auto_mode_uses_hybrid_when_embeddings_enabled(tmp_vault: Path) -> None:
+    """Con un embedder real, 'auto' rutea a hybrid."""
+    from unittest.mock import MagicMock, patch
+    fake_embedder = MagicMock()
+    fake_embedder.embed = MagicMock(return_value=[0.0])
+    (tmp_vault / "alpha.md").write_text("alpha body", encoding="utf-8")
+
+    ql = QueryLayer(vault_root=tmp_vault, embedder=fake_embedder)
+    with patch.object(ql, "search") as mock_search:
+        mock_search.return_value = []
+        search_vault(ql, query="alpha")
+        assert mock_search.call_args.kwargs["mode"] == "hybrid"

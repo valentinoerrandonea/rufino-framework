@@ -1,96 +1,129 @@
-# Codex Code Review: process-batch plan implementation
+# Code Review Codex - Rufino v0.2.0
 
-Scope reviewed:
-- `docs/superpowers/plans/2026-05-18-process-batch-via-claude-orchestration.md`
-- `docs/superpowers/plans/2026-05-18-process-batch-phases.md`
-- Current implementation under `src/rufino/engine/process/batch/`, `src/rufino/cli.py`, docs, and tests.
+Fecha: 2026-05-19
+Rama revisada: `feat/v0.2.0`
+Base de comparacion: `origin/main...HEAD`
 
-## Findings
+## Resumen ejecutivo
 
-### C1. `qa-poll` archives answered process-batch questions without committing the resumed note
+La implementacion cubre una porcion grande del plan v0.2.0 y trae tests nuevos extensos, pero no esta lista para merge/release. Hay fallas bloqueantes en el flujo default del wizard/MCP y una incompatibilidad fuerte entre el schema nuevo del wizard y el manifest/runtime de Ingest `emit_fact`.
 
-`docs/primitives/process.md:52-57` says the commit for a Q&A note is deferred until the user answers and runs `rufino qa-poll`. The implementation in `src/rufino/engine/process/batch/qa_resume.py:147-166` only validates the regenerated `augmented/<slug>.md` and `deltas/<slug>.json`, then moves the question to `questions/answered/`. It never runs consolidation, the naive commit planner, or `commit()`.
+La mayor preocupacion es que el camino conservador prometido por el wizard ("sin embeddings, busqueda lexica") registra un MCP server que arranca con `--rebuild` por default y termina llamando al embedder `NoopEmbedder`, lo que rompe el MCP server de un vault recien materializado sin embeddings. Tambien hay comandos que el propio prompt del wizard instruye ejecutar sin `--state-dir`, pero la CLI lo requiere obligatoriamente.
 
-Impact: a user can answer a batch question, see `dispatched=1`, and lose the only visible pending indicator while the note remains stranded in `.rufino/runs/.../workers/.../augmented/` instead of landing in the vault canon.
+## Hallazgos
 
-Reproduction performed:
-- Ran `rufino qa-poll` against a synthetic answered process-batch question with fake Claude in `augment` mode.
-- Result: `dispatched=1`, question archived, `staged_aug=True`, but `committed_notes=[]`.
+### P0 - MCP server default roto cuando embeddings estan deshabilitados
 
-Recommended fix:
-- After a successful validation in `resume_pending_qa`, apply the resumed note to the vault via the same commit path used by `run_batch`.
-- At minimum, build a one-note `ConsolidationPlan` from the manifest `destination_path` and call `commit()`.
-- Add a regression test that asserts the resumed note exists outside `.rufino/` after `qa-poll`, not only that the question was archived.
+Evidencia:
+- `materialize_cmd` escribe `embeddings_enabled=False` por default y registra el MCP server con `mcp-server --vault ... --state-dir ...`: `src/rufino/cli.py:470-498`.
+- `mcp_server_cmd` tiene `--rebuild=True` por default y siempre llama `ql.rebuild_indices()`: `src/rufino/cli.py:296-311`.
+- `QueryLayer.rebuild_indices()` siempre ejecuta `self._sem.rebuild_index()`: `src/rufino/engine/query/api.py:28-31`.
+- `SemanticBackend.rebuild_index()` llama `self.embedder.embed(text)` para cada nota: `src/rufino/engine/query/semantic.py:34-40`.
+- `NoopEmbedder.embed()` levanta `NotImplementedError`: `src/rufino/runtime/embedder/resolve.py:15-21`.
 
-### C2. Missing, empty, timed-out, or nonzero worker outputs can disappear from accounting and retry
+Impacto:
+El flujo default recomendado por el wizard registra un MCP server que falla al arrancar para vaults sin embeddings. Eso contradice la regla operativa de que el default sea lexical-only y deja inutilizable la feature distintiva "ask-rufino MCP" justo despues de materializar.
 
-`dispatch()` returns `WorkerOutcome` for non-session failures, and its docstring says nonzero exits and empty outputs are left for validation (`src/rufino/engine/process/batch/dispatcher.py:99-103`). But `run_batch()` ignores the dispatch result entirely (`src/rufino/engine/process/batch/runner.py:219-244`), and `validate_worker_output()` only iterates files that exist under `augmented/` (`src/rufino/engine/process/batch/validator.py:97-115`). If there is no `augmented/` directory, validation returns an empty report.
+Reproduccion rapida:
+`QueryLayer(vault_root=..., embedder=NoopEmbedder()).rebuild_indices()` levanta `NotImplementedError: embeddings no configurados...`.
 
-Impact: a planned note can produce no output and still end with `notes_failed=0`, no retry, no `failed/<slug>/` marker, and no Q&A. This breaks the plan's VALIDATE+RETRY guarantee and makes run summaries untrustworthy.
+Recomendacion:
+Separar rebuild semantico de rebuild de grafo. Con `NoopEmbedder`, `mcp-server --rebuild` deberia reconstruir solo indices no semanticos o saltar semantic index con warning. Alternativamente, cambiar el default de `mcp-server` a no rebuild semantico cuando el embedder sea `NoopEmbedder`.
 
-Reproduction performed with `FAKE_CLAUDE_MODE=empty`:
+### P0 - Wizard `emit_facts` materializa manifests incompatibles con Ingest runtime
 
-```text
-{'notes_total': 1, 'notes_ok': 0, 'notes_failed': 0, 'pending_qa': 0}
-```
+Evidencia:
+- `spec_schema` valida `sources[].destination` como string para `emit_facts`: `src/rufino/wizard/spec_schema.py:188-196`.
+- `materialize_ingest` copia ese `destination` directo al manifest: `src/rufino/wizard/adapter_materializers/ingest.py:82-89`.
+- `parse_ingest_manifest` espera que `destination` sea mapping y hace `dest.get("facts")`: `src/rufino/engine/ingest/manifest.py:68-75`.
+- `spec_schema` valida `dedup_by` como lista/tuple: `src/rufino/wizard/spec_schema.py:193-196`.
+- `run_ingest` usa `manifest.dedup_by` como clave string: `src/rufino/engine/ingest/runner.py:127`.
 
-Recommended fix:
-- Make validation assignment-aware: for every note in each `WorkerAssignment`, require exactly one terminal state: valid augmented+delta, pending Q&A, or failed.
-- Feed nonzero/timeout `WorkerOutcome` into validation or synthesize `NoteValidation` failures for every note assigned to that worker.
-- Add tests for `FAKE_CLAUDE_MODE=empty`, `fail`, and `hang` at the `run_batch()` level and assert `notes_failed == notes_total` or pending Q&A as appropriate.
+Impacto:
+El wizard puede aceptar una spec `emit_facts` que luego explota durante materializacion con `AttributeError: 'str' object has no attribute 'get'`. Si se cambia `destination` a mapping, el schema actual lo rechaza. Aun si se sortea eso, `dedup_by` como lista termina siendo incompatible con `fact[manifest.dedup_by]`.
 
-### C3. Commit rollback loses pre-existing vault files overwritten by batch moves
+Reproduccion rapida:
+Una spec con `output_mode="emit_facts"`, `destination="facts.jsonl"` y `dedup_by=["id"]` pasa la validacion del wizard pero `materialize_ingest()` falla con `AttributeError`.
 
-The plan requires final COMMIT through `TransactionLog` so failures roll back cleanly. `commit()` snapshots concept writes and index/log changes, but plain note moves do not snapshot an existing destination. The move path is `shutil.move(src, dest)` at `src/rufino/engine/process/batch/committer.py:102-118`; rollback only moves the current destination back to the staging source (`src/rufino/engine/process/batch/committer.py:44-50`).
+Recomendacion:
+Alinear el contrato end-to-end. O el wizard debe exigir `destination: {facts: ..., raw: ...}` y `dedup_by: "id"`, o el parser/runtime de Ingest debe aceptar la nueva forma. Agregar test integrado `validate_spec -> materialize_ingest -> parse_ingest_manifest -> run_ingest` para `emit_facts`.
 
-Impact: if `apuntes/n1.md` already exists and a batch move targets the same path, the existing canonical note is overwritten. If a later operation fails and rollback runs, rollback moves the new note back to staging and deletes the destination, permanently losing the old canonical note. This violates the atomic commit guarantee and can destroy user vault content.
+### P1 - El wizard instruye un comando de embeddings que la CLI rechaza
 
-Reproduction performed:
-- Created existing `vault/apuntes/n1.md` with `OLD`.
-- Committed a plan whose first move writes `NEW` to the same destination and whose second move fails.
-- After rollback: destination no longer existed; staging source was restored with `NEW`; `OLD` was gone.
+Evidencia:
+- Prompt del wizard: despues de `detect-embeddings`, instruye `rufino enable-embeddings --vault <vault>`: `src/rufino/wizard/system_prompt_assembler.py:71-74`.
+- Reglas operativas repiten el mismo comando sin `--state-dir`: `src/rufino/wizard/operative_rules.md:11`.
+- La CLI marca `--state-dir` como requerido en `enable-embeddings`: `src/rufino/cli.py:333-340`.
 
-Recommended fix:
-- For `plan.moves`, snapshot existing destinations before moving, just like concept overwrites.
-- Rollback should restore the previous destination if it existed, or delete the new destination if it did not.
-- Also reject duplicate `to` paths within one plan before applying any operations.
-- Add tests for overwriting an existing note followed by a later failure, and for duplicate move destinations.
+Impacto:
+Si el wizard sigue sus propias instrucciones, el comando falla por parametro faltante. Esto corta el flujo guiado para activar busqueda semantica.
 
-### H1. Staging flattens nested paths within a group and silently overwrites duplicate filenames
+Recomendacion:
+Hacer `--state-dir` opcional con default `~/.rufino/state`, igual que `query` y `mcp-server`, o actualizar todos los prompts/reglas para pasar el mismo `state_dir` usado en `materialize`.
 
-The stager groups by top-level directory (`src/rufino/engine/process/batch/stager.py:64-67`), but `_stage_one_file()` writes every passthrough file as `inbox/<group>/<src_file.name>` and every converted file as `inbox/<group>/<src_file.stem>.md` (`src/rufino/engine/process/batch/stager.py:70-86`). That discards subdirectory context.
+### P1 - La busqueda hibrida carga `sentence_transformers` en rutas de tests/MCP no mockeadas y puede abortar el proceso
 
-Impact: a normal corpus like `math/unit1/lesson.md` and `math/unit2/lesson.md` stages two plan entries pointing at the same `inbox/math/lesson.md`; the second copy overwrites the first. The run claims two notes, but both worker inputs refer to the same file content. Converted files can collide with each other or with markdown files by stem as well.
+Evidencia:
+- `QueryLayer.search(..., mode="hybrid")` instancia `CrossEncoderReranker()` y llama `rerank()`: `src/rufino/engine/query/api.py:48-70`.
+- `CrossEncoderReranker._load_model()` importa `sentence_transformers.CrossEncoder` y carga `BAAI/bge-reranker-base`: `src/rufino/runtime/embedder/cross_encoder.py:15-18`.
+- Tests no mockeados llaman busqueda hibrida con embedder fake, por ejemplo `tests/test_query_api.py:46-63` y `tests/test_mcp_tools.py:137-149`.
 
-Reproduction performed:
+Impacto:
+La suite completa aborto localmente al importar `torch` via `sentence_transformers` en Python 3.14/Homebrew. Aunque esto puede ser de entorno, el problema de producto permanece: una busqueda hibrida puede cargar un modelo pesado o fallar por dependencias nativas en paths que antes eran livianos. En MCP, un tool call puede pagar ese costo o tumbar el proceso.
 
-```text
-group_count 2
-paths ['inbox/math/same.md', 'inbox/math/same.md']
-unique_paths 1
-final_text TWO
-```
+Resultado observado:
+`pytest -q` avanzo hasta ~32%, registro fallos y luego termino con `Fatal Python error: Aborted` en `torch/__init__.py`, invocado desde `src/rufino/runtime/embedder/cross_encoder.py:17`.
 
-Recommended fix:
-- Preserve the path relative to the group root under `inbox/<group>/...`, or generate deterministic unique staged names while storing original source metadata.
-- Add collision detection and fail fast if two source files map to the same staged path.
-- Add tests for duplicate basenames in nested folders and for converted `.docx` colliding with `.md` by stem.
+Recomendacion:
+Inyectar/cachear el reranker y mockearlo en tests que no estan probando rerank. Considerar un fallback mas amplio que `ImportError` para errores de carga del modelo, y no usar `hybrid` como default en herramientas que prometen funcionar sin setup pesado.
 
-## Verification
+### P1 - Filtros de cron pueden borrar jobs por coincidencia de prefijo
 
-Targeted tests run:
+Evidencia:
+- `_filter_other_entries()` borra cualquier linea que contenga `# rufino-job:{job_id}` como substring: `src/rufino/runtime/scheduler/cron.py:88-93`.
 
-```bash
-pytest tests/test_batch_runner.py tests/test_batch_committer.py \
-  tests/test_cli_qa_poll_resumption.py tests/integration/test_batch_end_to_end.py -q
-```
+Impacto:
+Desinstalar `job_id="foo"` borra tambien una linea marcada `# rufino-job:foobar`, porque el marcador de `foo` es prefijo del marcador de `foobar`. Esto puede eliminar schedules de otros adapters/vaults si sus ids comparten prefijo.
 
-Result: 14 passed, 1 failed. The failure was `tests/integration/test_batch_end_to_end.py::test_full_pipeline_end_to_end` because the current local environment lacks `mammoth`:
+Recomendacion:
+Parsear el marcador exacto al final de linea o comparar el job id extraido despues de `_MARKER_PREFIX` con igualdad exacta.
 
-```text
-ModuleNotFoundError: No module named 'mammoth'
-```
+### P2 - `install-ingest` persiste paths relativos en jobs de cron/launchd
 
-`pyproject.toml` declares `mammoth>=1.6` and `python-pptx>=0.6`, so this is likely an environment/setup issue rather than a source issue. It still means I could not verify the mixed-format integration test in this workspace without installing project dependencies.
+Evidencia:
+- El comando del job usa `str(adapter_dir)` y `str(vault_root)` tal como entraron por CLI: `src/rufino/cli.py:586-592`.
 
-Additional focused reproductions were run for C1, C2, C3, and H1 as described above.
+Impacto:
+Si el usuario instala con paths relativos, cron/launchd ejecutara desde otro working directory y el job puede fallar por no encontrar adapter o vault. Esto es especialmente probable porque el wizard ofrece `rufino install-ingest <adapter_dir> --vault <vault>`.
+
+Recomendacion:
+Resolver `adapter_dir = adapter_dir.expanduser().resolve()` y `vault_root = vault_root.expanduser().resolve()` antes de construir `job_id` y `cmd`.
+
+### P2 - `materialize --embeddings` marca embeddings como habilitados sin detectar prereqs ni construir indice
+
+Evidencia:
+- `materialize_cmd` escribe estado de embeddings segun el flag, pero no llama `detect_ollama()` ni `QueryLayer.rebuild_indices()`: `src/rufino/cli.py:441-477`.
+- El comando dedicado `enable_embeddings_cmd` si detecta prereqs y reconstruye antes de escribir estado: `src/rufino/cli.py:345-363`.
+
+Impacto:
+El flag `--embeddings` puede dejar el vault en estado "enabled" aunque Ollama no este listo o el indice semantico no exista. Las consultas semanticas posteriores pueden fallar por conexion a Ollama o devolver resultados vacios hasta que algun rebuild ocurra.
+
+Recomendacion:
+Eliminar el flag de `materialize` o hacer que delegue en la misma logica atomica de `enable_embeddings_cmd`.
+
+## Verificacion ejecutada
+
+- `git diff --stat origin/main...HEAD`: 93 archivos, ~8278 inserciones.
+- `pytest -q`: no completo; fallo por `ModuleNotFoundError: No module named 'mcp'` y luego aborto fatal importando `torch` via `sentence_transformers`.
+- `pytest -q -x`: primer fallo aislado en `tests/test_mcp_server_smoke.py::test_server_builds_with_query_layer` por falta de paquete `mcp` en el entorno local.
+- `pytest -q -x -k 'not mcp'`: primer fallo aislado en `tests/test_output_channel_webhook_push.py::test_webhook_posts_json` por DNS local de `example.com`; luego la corrida sin `-x` aborto por `sentence_transformers/torch`.
+- Reproduccion manual de `NoopEmbedder + rebuild_indices`: confirma `NotImplementedError`.
+- Reproduccion manual de `emit_facts` desde wizard schema hacia materializer: confirma `AttributeError` en `destination` string.
+
+## Gaps de test recomendados
+
+- Test integrado para vault materializado sin embeddings: `materialize -> mcp-server --rebuild` no debe fallar.
+- Test integrado completo para `emit_facts`: `validate_spec -> materialize_ingest -> parse_ingest_manifest -> run_ingest`.
+- Tests de CLI wizard commands reales: validar que los comandos escritos en `system_prompt_assembler.py` son aceptados por Click.
+- Test de uninstall cron con ids prefijo: instalar `foo` y `foobar`, desinstalar `foo`, verificar que `foobar` queda.
+- Tests que aseguren que `install-ingest` escribe paths absolutos en cron/launchd.

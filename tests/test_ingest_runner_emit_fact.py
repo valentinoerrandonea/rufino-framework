@@ -67,22 +67,6 @@ def test_emit_fact_does_not_advance_cursor_when_errors(tmp_vault: Path, tmp_path
     assert not cursors_file.exists() or "evil" not in cursors_file.read_text(encoding="utf-8")
 
 
-def test_emit_augmented_raises_not_implemented(tmp_vault: Path, tmp_path: Path):
-    adapter = tmp_path / "augmented-adapter"
-    adapter.mkdir()
-    (adapter / "manifest.yaml").write_text(
-        "adapter_name: aug\nsource_name: aug\nschedule: '* * * * *'\nauth: {}\n"
-        "output_mode: emit_augmented\nprocess_inline_with: hook\n"
-    )
-    (adapter / "fetcher.py").write_text("def fetch(since): return []\n")
-    with pytest.raises(NotImplementedError, match="emit_augmented"):
-        run_ingest(
-            adapter_dir=adapter,
-            vault_root=tmp_vault,
-            rufino_state_dir=tmp_path / ".rufino-state",
-        )
-
-
 def test_emit_fact_fetcher_receives_cursor_on_second_run(tmp_vault: Path, tmp_path: Path):
     adapter = tmp_path / "cursor-aware-adapter"
     adapter.mkdir()

@@ -47,7 +47,7 @@ Verificá:
 
 ```bash
 which rufino       # → /Users/<vos>/.local/bin/rufino (o equivalente de pipx)
-rufino version     # → 0.1.0
+rufino version     # → 0.2.0
 ```
 
 > `process-batch` requiere `mammoth` y `python-pptx` (declarados en
@@ -60,7 +60,7 @@ rufino version     # → 0.1.0
 rufino bootstrap
 ```
 
-Esto lanza `claude -p <system-prompt>` con un toolset restringido (`Read`, `Write`, `Bash(rufino materialize:*)`, `Bash(rufino query:*)`). Claude arranca con un system prompt que lo configura como **el wizard**: lenguaje user, checklist interno de objetivos, catálogo de 6 patterns conocidos, reglas operativas de conversación.
+Esto lanza una sesión interactiva con `claude --system-prompt <system-prompt> --allowedTools "..." -- "<kickoff>"` (NO `-p`/headless — el wizard necesita back-and-forth). El toolset queda restringido a `Read`, `Write`, `Bash(rufino materialize:*)`, `Bash(rufino query:*)`. Claude arranca con un system prompt que lo configura como **el wizard**: lenguaje user, checklist interno de objetivos, catálogo de 6 patterns conocidos, reglas operativas de conversación.
 
 ### Conversación esperada
 

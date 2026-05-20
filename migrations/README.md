@@ -43,4 +43,9 @@ if [ -f "$RUFINO_HOME/old-name.json" ]; then
 fi
 ```
 
-No migrations yet — directory is initially empty.
+## v0.2.1
+
+No migration script needed — all fixes are backwards-compatible. The
+`emit_facts`/`emit_fact` manifest shape change (review-claude C3) accepts
+both the legacy string `destination` form and the new mapping form
+(`{facts: ..., raw: ...}`) during the transition.

@@ -1,5 +1,8 @@
 import asyncio
 import json
+import shlex
+import shutil
+import sys
 from pathlib import Path
 
 import click
@@ -12,26 +15,42 @@ from rufino.engine.process.dispatcher import process_note as _process_note
 from rufino.engine.ingest.runner import run_ingest
 from rufino.engine.output.dispatcher import dispatch_output
 from rufino.engine.output.channels.file_channel import FileChannel
-from rufino.engine.process.context_injectors import StubQueryLayer
 from rufino.engine.query.api import QueryLayer
 from rufino.mcp_server.server import build_server
+from rufino.runtime.embedder.resolve import NoopEmbedder, resolve_embedder, write_vault_state
 from rufino.runtime.transaction_log import TransactionLog
+from rufino.runtime.vault_slug import compute_vault_slug
 from rufino.wizard.materializer import materialize
 from rufino.wizard.spec_schema import SpecError, validate_spec
 from rufino.wizard.system_prompt_assembler import build_system_prompt
 
 
-class _NoopEmbeddings:
-    """Placeholder embedder. Real Ollama wiring is deferred; meanwhile any
-    semantic-mode call raises loudly rather than returning misleading zeros.
-    Lexical mode does not touch the embedder, so it remains fully functional.
-    """
+DEFAULT_STATE_DIR = Path.home() / ".rufino" / "state"
 
-    def embed(self, text: str) -> list[float]:
-        raise NotImplementedError(
-            "semantic mode requires a real embedder; "
-            "placeholder _NoopEmbeddings cannot embed text"
-        )
+
+def _resolve_for_vault(vault_root: Path, state_dir: Path):
+    """Resolve the embedder configured for `vault_root` from per-vault state."""
+    return resolve_embedder(
+        vault_slug=compute_vault_slug(vault_root), state_dir=state_dir,
+    )
+
+
+def _scheduler_backend():
+    """Factory for the platform-appropriate scheduler backend.
+
+    Indirected through this helper so tests can `monkeypatch` it without
+    touching the underlying `runtime.scheduler` module.
+    """
+    from rufino.runtime.scheduler import get_backend
+    return get_backend()
+
+
+def _rufino_invocation() -> str:
+    """Return a shell-safe invocation string for the `rufino` CLI."""
+    rufino_bin = shutil.which("rufino")
+    if rufino_bin:
+        return shlex.quote(rufino_bin)
+    return f"{shlex.quote(sys.executable)} -m rufino"
 
 
 @click.group()
@@ -87,10 +106,61 @@ def process_cmd(note_path: Path, vault_root: Path, mode: str, adapter_dir: Path 
         click.echo("Error: --adapter-dir required for --mode full", err=True)
         raise click.exceptions.Exit(code=1)
     if mode == "full":
-        click.echo("Error: full mode CLI wiring lands in plan 7 (needs real LLM + Query)", err=True)
-        raise click.exceptions.Exit(code=2)
+        _process_single_full(note_path=note_path, vault_root=vault_root,
+                             adapter_dir=adapter_dir)
+        return
     result = _process_note(note_path=note_path, vault_root=vault_root, mode=mode)
     click.echo(f"{result.message}")
+
+
+def _process_single_full(
+    *, note_path: Path, vault_root: Path, adapter_dir: Path,
+) -> None:
+    """Run ``--mode full`` on a single note by delegating to ``run_batch``
+    over a tempdir-of-one. Exit codes mirror the batch outcomes:
+      0  — note committed
+      1  — failure (staging preserved under ``<vault>/.rufino/runs/<run_id>``)
+      3  — Q&A pending (check ``<vault>/questions/``)
+    127  — ``claude`` binary missing on PATH.
+    """
+    import shutil
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="rufino-process-full-") as tmp:
+        staging = Path(tmp)
+        shutil.copy2(note_path, staging / note_path.name)
+        try:
+            result = asyncio.run(run_batch(
+                source=staging, adapter_dir=adapter_dir,
+                vault_root=vault_root,
+                workers=1, batch_size=1, dry_run=False,
+            ))
+        except WorkerSessionExpiredError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise click.exceptions.Exit(code=1)
+        except BatchError as e:
+            click.echo(f"Error: {e}", err=True)
+            raise click.exceptions.Exit(code=1)
+        except FileNotFoundError as e:
+            if getattr(e, "filename", None) == "claude":
+                click.echo("Error: `claude` no encontrado en PATH.", err=True)
+                raise click.exceptions.Exit(code=127)
+            raise
+
+    if result.notes_pending_qa > 0:
+        click.echo(
+            f"Q&A pending for {note_path.name} (run_id={result.run_id}); "
+            f"check vault questions/",
+        )
+        raise click.exceptions.Exit(code=3)
+    if result.notes_failed > 0:
+        click.echo(
+            f"Error: full-mode processing failed for {note_path.name} "
+            f"(run_id={result.run_id}); staging preserved",
+            err=True,
+        )
+        raise click.exceptions.Exit(code=1)
+    click.echo(f"processed {note_path.name}: ok (run_id={result.run_id})")
 
 
 @cli.command(name="ingest")
@@ -114,11 +184,15 @@ def ingest_cmd(adapter_dir: Path, vault_root: Path, state_dir: Path) -> None:
 
 class _LexicalQueryAdapter:
     """Adapter that exposes a `run(query_string)` method backed by the real
-    lexical query layer. Used by `rufino output` until the full hybrid layer
-    has a real embedder."""
+    lexical query layer. Used by `rufino output`: output adapters today only
+    consume lexical queries, so the embedder is irrelevant — we pass whatever
+    `resolve_embedder` returns to keep the QueryLayer happy."""
 
-    def __init__(self, vault_root: Path) -> None:
-        self._ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
+    def __init__(self, vault_root: Path, state_dir: Path) -> None:
+        self._ql = QueryLayer(
+            vault_root=vault_root,
+            embedder=_resolve_for_vault(vault_root, state_dir),
+        )
 
     def run(self, query_string: str) -> list[str]:
         return [r.relative_path for r in self._ql.search(query_string, mode="lexical")]
@@ -127,12 +201,16 @@ class _LexicalQueryAdapter:
 @cli.command(name="output")
 @click.argument("adapter_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
-def output_cmd(adapter_dir: Path, vault_root: Path) -> None:
-    """Run an Output adapter once (lexical query layer; semantic deferred)."""
+@click.option("--state-dir", "state_dir", default=None,
+              type=click.Path(path_type=Path),
+              help="Rufino state directory (default: ~/.rufino/state)")
+def output_cmd(adapter_dir: Path, vault_root: Path, state_dir: Path | None) -> None:
+    """Run an Output adapter once."""
+    state_dir = state_dir or DEFAULT_STATE_DIR
     channels = {"file": FileChannel(vault_root=vault_root)}
     result = dispatch_output(
         adapter_dir=adapter_dir,
-        query=_LexicalQueryAdapter(vault_root),
+        query=_LexicalQueryAdapter(vault_root, state_dir),
         channels=channels,
         event_context={},
     )
@@ -192,17 +270,22 @@ def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
 @click.option("--vault", "vault_root", required=True,
               type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--mode", default="hybrid", type=click.Choice(["lexical", "semantic", "hybrid"]))
-def query_cmd(query_string: str, vault_root: Path, mode: str) -> None:
+@click.option("--state-dir", "state_dir", default=None,
+              type=click.Path(path_type=Path),
+              help="Rufino state directory (default: ~/.rufino/state)")
+def query_cmd(query_string: str, vault_root: Path, mode: str,
+              state_dir: Path | None) -> None:
     """Search the vault."""
-    if mode in ("semantic", "hybrid"):
+    state_dir = state_dir or DEFAULT_STATE_DIR
+    embedder = _resolve_for_vault(vault_root, state_dir)
+    if mode in ("semantic", "hybrid") and isinstance(embedder, NoopEmbedder):
         click.echo(
-            f"Error: --mode={mode} requires a real embedder; "
-            f"only --mode=lexical is wired in this release "
-            f"(placeholder embedder until Ollama integration lands).",
+            f"Error: --mode={mode} requires embeddings; "
+            f"corré `rufino enable-embeddings --vault {vault_root}` y reintentá.",
             err=True,
         )
         raise click.exceptions.Exit(code=2)
-    ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
+    ql = QueryLayer(vault_root=vault_root, embedder=embedder)
     results = ql.search(query_string, mode=mode)
     for r in results:
         click.echo(r.relative_path)
@@ -213,12 +296,17 @@ def query_cmd(query_string: str, vault_root: Path, mode: str) -> None:
               type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.option("--rebuild/--no-rebuild", default=True,
               help="Rebuild semantic+graph indices on startup (default: enabled)")
-def mcp_server_cmd(vault_root: Path, rebuild: bool) -> None:
+@click.option("--state-dir", "state_dir", default=None,
+              type=click.Path(path_type=Path),
+              help="Rufino state directory (default: ~/.rufino/state)")
+def mcp_server_cmd(vault_root: Path, rebuild: bool, state_dir: Path | None) -> None:
     """Run the ask-rufino MCP server on stdio."""
     import asyncio
     from mcp.server.stdio import stdio_server
 
-    ql = QueryLayer(vault_root=vault_root, embedder=_NoopEmbeddings())
+    state_dir = state_dir or DEFAULT_STATE_DIR
+    embedder = _resolve_for_vault(vault_root, state_dir)
+    ql = QueryLayer(vault_root=vault_root, embedder=embedder)
     if rebuild:
         ql.rebuild_indices()
     server = build_server(ql)
@@ -228,6 +316,125 @@ def mcp_server_cmd(vault_root: Path, rebuild: bool) -> None:
             await server.run(read, write, server.create_initialization_options())
 
     asyncio.run(_main())
+
+
+@cli.command(name="detect-embeddings")
+def detect_embeddings_cmd() -> None:
+    """Probe the local Ollama install for an embedding-ready setup."""
+    from rufino.runtime.embedder.detect import detect_ollama
+    r = detect_ollama()
+    if r.binary_present and r.server_running and r.model_installed:
+        click.echo("OK: ollama + nomic-embed-text ready")
+        return
+    click.echo(f"NOT READY: {r.error}", err=True)
+    raise click.exceptions.Exit(code=1)
+
+
+@cli.command(name="enable-embeddings")
+@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path),
+              help="Vault root path")
+@click.option("--state-dir", "state_dir", default=None,
+              type=click.Path(path_type=Path),
+              help="Rufino state directory (default: ~/.rufino/state)")
+@click.option("--model", default="nomic-embed-text",
+              help="Ollama embedding model (default: nomic-embed-text)")
+def enable_embeddings_cmd(vault_root: Path, state_dir: Path | None, model: str) -> None:
+    """Enable semantic embeddings for a vault. Requires ollama + nomic-embed-text."""
+    from rufino.runtime.embedder.detect import detect_ollama
+    from rufino.runtime.embedder.ollama import OllamaEmbedder
+
+    r = detect_ollama(model=model)
+    if not (r.binary_present and r.server_running and r.model_installed):
+        click.echo(f"Error: {r.error}", err=True)
+        raise click.exceptions.Exit(code=1)
+
+    state_dir = state_dir or DEFAULT_STATE_DIR
+    vault_root = vault_root.expanduser().resolve()
+    state_dir = state_dir.expanduser().resolve()
+    slug = compute_vault_slug(vault_root)
+    # Snapshot pre-existing sqlite/graph indices so a mid-rebuild crash
+    # (Ollama dropping mid-request, disk full, etc.) doesn't leave the
+    # vault with a half-built index and embeddings.enabled=true mismatched.
+    # Use file-based snapshots (shutil.copyfile) instead of read_bytes() so
+    # vaults with 10k+ notes don't pin a multi-MB blob in memory during rebuild.
+    meta_dir = vault_root / "_meta"
+    index_files = ("embeddings.sqlite", "graph.sqlite")
+    # Refuse to clobber leftover snapshots from a previous crashed run —
+    # the .rufino-bak files are the only good copies of the pre-rebuild
+    # state and overwriting them with the (possibly partial) live index
+    # loses that. Report ALL stale snapshots in one shot so the user
+    # cleans up in one cycle instead of N.
+    stale = [
+        (meta_dir / fname).with_suffix(
+            (meta_dir / fname).suffix + ".rufino-bak"
+        )
+        for fname in index_files
+        if (meta_dir / fname).with_suffix(
+            (meta_dir / fname).suffix + ".rufino-bak"
+        ).exists()
+    ]
+    if stale:
+        bullet = "\n  - ".join(str(s) for s in stale)
+        raise click.UsageError(
+            f"stale snapshot(s) from a previous crashed `rufino enable-embeddings`:\n"
+            f"  - {bullet}\n"
+            f"For each: either restore (`mv <bak> <bak-without-.rufino-bak>`) "
+            f"or delete (`rm <bak>`) and rerun."
+        )
+    snapshots: dict[Path, Path | None] = {}
+    for fname in index_files:
+        p = meta_dir / fname
+        bak = p.with_suffix(p.suffix + ".rufino-bak")
+        if p.exists():
+            shutil.copyfile(p, bak)
+            snapshots[p] = bak
+        else:
+            snapshots[p] = None
+
+    def _restore_indices() -> None:
+        for p, bak in snapshots.items():
+            if bak is None:
+                if p.exists():
+                    p.unlink()
+            else:
+                bak.replace(p)
+
+    def _cleanup_snapshots() -> None:
+        for bak in snapshots.values():
+            if bak is not None and bak.exists():
+                try:
+                    bak.unlink()
+                except OSError:
+                    pass
+
+    ql = QueryLayer(vault_root=vault_root, embedder=OllamaEmbedder(model=model))
+    try:
+        ql.rebuild_indices()
+        write_vault_state(
+            vault_slug=slug, state_dir=state_dir,
+            embeddings_enabled=True, backend="ollama", model=model,
+        )
+    except Exception:
+        _restore_indices()
+        raise
+    else:
+        _cleanup_snapshots()
+    click.echo(f"Embeddings enabled for {slug} (model={model})")
+
+
+@cli.command(name="disable-embeddings")
+@click.option("--vault", "vault_root", required=True, type=click.Path(path_type=Path))
+@click.option("--state-dir", "state_dir", default=None,
+              type=click.Path(path_type=Path),
+              help="Rufino state directory (default: ~/.rufino/state)")
+def disable_embeddings_cmd(vault_root: Path, state_dir: Path | None) -> None:
+    """Disable semantic embeddings for a vault. Idempotent; preserves indices."""
+    state_dir = state_dir or DEFAULT_STATE_DIR
+    vault_root = vault_root.expanduser().resolve()
+    state_dir = state_dir.expanduser().resolve()
+    slug = compute_vault_slug(vault_root)
+    write_vault_state(vault_slug=slug, state_dir=state_dir, embeddings_enabled=False)
+    click.echo(f"Embeddings disabled for {slug}")
 
 
 @cli.command(name="bootstrap")
@@ -263,7 +470,17 @@ def bootstrap_cmd(dry_run: bool) -> None:
             "claude",
             "--system-prompt", system_prompt,
             "--allowedTools",
-            "Bash(rufino materialize:*),Bash(rufino query:*),Read,Write",
+            (
+                "Bash(rufino materialize:*),"
+                "Bash(rufino query:*),"
+                "Bash(rufino process-batch:*),"
+                "Bash(rufino detect-embeddings:*),"
+                "Bash(rufino enable-embeddings:*),"
+                "Bash(rufino install-ingest:*),"
+                "Bash(rufino uninstall-ingest:*),"
+                "Bash(rufino list-ingests:*),"
+                "Read,Write"
+            ),
             "--",  # end-of-options marker so --allowedTools doesn't slurp the prompt
             "Saludá y arrancá la entrevista del wizard.",
         ],
@@ -286,7 +503,13 @@ def materialize_cmd(
     spec_path: Path, vault_root: Path, claude_home: Path, state_dir: Path,
     install_hooks: bool,
 ) -> None:
-    """Materialize the system described in a WizardSpec JSON file."""
+    """Materialize the system described in a WizardSpec JSON file.
+
+    Embeddings are NOT enabled by this command — it always writes per-vault
+    state with ``embeddings.enabled=false``. To enable semantic search after
+    materializing, run ``rufino enable-embeddings --vault <path>`` (which
+    detects Ollama, builds the index and atomically flips state).
+    """
     raw = json.loads(spec_path.read_text(encoding="utf-8"))
     try:
         spec = validate_spec(raw)
@@ -294,11 +517,12 @@ def materialize_cmd(
         click.echo(f"Spec validation failed: {e}", err=True)
         raise click.exceptions.Exit(code=1)
 
+    state_dir_resolved = state_dir.expanduser().resolve()
     result = materialize(
         spec=spec,
         vault_root=vault_root.expanduser().resolve(),
         claude_home=claude_home.expanduser().resolve(),
-        state_dir=state_dir.expanduser().resolve(),
+        state_dir=state_dir_resolved,
         install_hooks=install_hooks,
     )
 
@@ -307,20 +531,36 @@ def materialize_cmd(
             click.echo(f"ERROR: {err}", err=True)
         raise click.exceptions.Exit(code=2)
 
+    # Mark the vault as embeddings-off in per-vault state. The user runs
+    # `rufino enable-embeddings` later (which detects Ollama + rebuilds the
+    # index atomically); writing enabled=true here without those steps
+    # would leave the vault in an inconsistent state.
+    write_vault_state(
+        vault_slug=compute_vault_slug(result.vault_path),
+        state_dir=state_dir_resolved,
+        embeddings_enabled=False,
+    )
+
     # Register a per-vault MCP server in ~/.claude.json so Claude Code can
     # query the freshly materialized vault without clobbering other vaults'
     # entries. Uses sys.argv[0] (the rufino CLI that's currently running) so
     # the command stays correct under pipx/venv.
     import sys
     from rufino.runtime.claude_config import register_mcp_server
-    from rufino.runtime.vault_slug import compute_vault_slug
     server_name = f"ask-rufino-{compute_vault_slug(result.vault_path)}"
     claude_config = Path.home() / ".claude.json"
     register_mcp_server(
         claude_config_path=claude_config,
         server_name=server_name,
         command=sys.argv[0] if sys.argv and sys.argv[0] else "rufino",
-        args=["mcp-server", "--vault", str(result.vault_path)],
+        # Pass --state-dir explicitly so the MCP server reads embedding
+        # state from the same dir we just wrote to — otherwise a custom
+        # --state-dir at materialize time would silently fall back to the
+        # default and `--mode=hybrid` would degrade to NoopEmbedder.
+        args=[
+            "mcp-server", "--vault", str(result.vault_path),
+            "--state-dir", str(state_dir_resolved),
+        ],
     )
     click.echo(f"Vault materialized at {result.vault_path}")
     click.echo(f"Registered {server_name} MCP at {claude_config}")
@@ -371,3 +611,102 @@ def process_batch_cmd(
         f"ok={result.notes_ok} failed={result.notes_failed} "
         f"pending_qa={result.notes_pending_qa}"
     )
+
+
+def _ingest_job_id(vault_root: Path, adapter_name: str) -> str:
+    return f"rufino-ingest-{compute_vault_slug(vault_root)}-{adapter_name}"
+
+
+@cli.command(name="install-ingest")
+@click.argument("adapter_dir",
+                type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path),
+              help="Vault root")
+@click.option("--rufino-home", "rufino_home",
+              type=click.Path(path_type=Path), envvar="RUFINO_HOME",
+              default=None,
+              help="Rufino home directory (default: ~/.rufino)")
+def install_ingest_cmd(
+    adapter_dir: Path, vault_root: Path, rufino_home: Path | None
+) -> None:
+    """Install a scheduled ingest job from an Ingest adapter manifest."""
+    from rufino.engine.ingest.manifest import (
+        ManifestParseError, parse_ingest_manifest,
+    )
+    from rufino.runtime.transaction_log import TransactionLog, apply_and_log
+
+    # Resolve every user-supplied path to an absolute one BEFORE writing it
+    # to the cron entry. The scheduler runs the cmd with an unknown cwd, so
+    # any relative path would silently break the scheduled job at runtime.
+    adapter_dir = adapter_dir.expanduser().resolve(strict=True)
+    vault_root = vault_root.expanduser().resolve(strict=True)
+
+    manifest_path = adapter_dir / "manifest.yaml"
+    if not manifest_path.exists():
+        raise click.UsageError(
+            f"missing manifest.yaml in adapter {adapter_dir}"
+        )
+    try:
+        manifest = parse_ingest_manifest(manifest_path.read_text(encoding="utf-8"))
+    except ManifestParseError as e:
+        raise click.UsageError(f"invalid ingest manifest: {e}") from e
+
+    home = (rufino_home or (Path.home() / ".rufino")).expanduser().resolve()
+    logs_dir = home / "logs"
+
+    job_id = _ingest_job_id(vault_root, manifest.adapter_name)
+    log_path = str(logs_dir / f"{job_id}.log")
+    cmd = (
+        f"{_rufino_invocation()} ingest "
+        f"{shlex.quote(str(adapter_dir))} "
+        f"--vault {shlex.quote(str(vault_root))}"
+    )
+
+    backend = _scheduler_backend()
+    tx_dir = home / "tx"
+    tx_dir.mkdir(parents=True, exist_ok=True)
+    tx_log_path = tx_dir / f"install-ingest-{job_id}.json"
+    tx = TransactionLog(tx_log_path)
+    try:
+        apply_and_log(
+            tx, op="mkdir", target=str(logs_dir),
+            apply_fn=lambda: logs_dir.mkdir(parents=True, exist_ok=True),
+            rollback="rmdir_if_empty",
+        )
+        apply_and_log(
+            tx, op="scheduler_install", target=job_id,
+            apply_fn=lambda: backend.install(
+                job_id=job_id, schedule=manifest.schedule,
+                cmd=cmd, log_path=log_path,
+            ),
+            rollback="scheduler_uninstall",
+        )
+    except (ValueError, NotImplementedError) as e:
+        tx.rollback()
+        raise click.UsageError(f"could not install job: {e}") from e
+    except Exception:
+        tx.rollback()
+        raise
+    click.echo(f"installed {job_id} (schedule: {manifest.schedule})")
+
+
+@cli.command(name="uninstall-ingest")
+@click.argument("adapter_name", type=str)
+@click.option("--vault", "vault_root", required=True,
+              type=click.Path(exists=True, file_okay=False, path_type=Path),
+              help="Vault root")
+def uninstall_ingest_cmd(adapter_name: str, vault_root: Path) -> None:
+    """Remove a scheduled ingest job by adapter name."""
+    job_id = _ingest_job_id(vault_root, adapter_name)
+    backend = _scheduler_backend()
+    backend.uninstall(job_id=job_id)
+    click.echo(f"uninstalled {job_id}")
+
+
+@cli.command(name="list-ingests")
+def list_ingests_cmd() -> None:
+    """List Rufino-installed ingest jobs."""
+    backend = _scheduler_backend()
+    for job in backend.list_jobs():
+        click.echo(job)

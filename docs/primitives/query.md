@@ -37,15 +37,16 @@ note: Note = ql.read_note("apuntes/ml-i/2026-05-17-regresion.md")
 
 | Mode | Backend | Notas |
 |---|---|---|
-| `lexical` | ripgrep sobre los markdown del vault | Exact match / regex. Rápido. Operativo en v0.0.2. |
-| `semantic` | Embeddings (Ollama + `nomic-embed-text`) + sqlite-vec | Similitud semántica. **Requiere embedder real — placeholder en v0.0.2 tira NotImplementedError.** |
-| `hybrid` | Combinación de lexical + semantic con re-ranking | Default cuando aterrice el embedder. |
+| `lexical` | ripgrep sobre los markdown del vault | Exact match / regex. Rápido. Operativo. |
+| `semantic` | Embeddings (Ollama + `nomic-embed-text`) persistidos en sqlite, cosine en Python | Similitud semántica. **Opt-in (v0.2.0+):** corré `rufino enable-embeddings --vault X` para activar. Si está disabled, `--mode semantic` exits 2. |
+| `hybrid` | Combinación de lexical + semantic con re-rank via cross-encoder (`BAAI/bge-reranker-base` pin) | Default cuando embeddings están enabled. Mismo opt-in que `semantic`. |
+| `auto` (sólo MCP) | Lexical si no hay embeddings configurados, hybrid si sí | Fallback automático del tool `search_vault` para que Claude Code no vea fallos en vault virgen. |
 
 ## Backends
 
 ### Lexical (ripgrep)
 
-`engine/query/backends/lexical.py`:
+`engine/query/lexical.py`:
 
 - Usa `rg --json` para queries flexibles.
 - Filtra fuera de los system dirs (`_meta/`, `.obsidian/`, `.git/`) via `iter_user_notes()` + `EXCLUDED_DIRS` centralizado en `engine/query/filters.py`.
@@ -54,21 +55,22 @@ note: Note = ql.read_note("apuntes/ml-i/2026-05-17-regresion.md")
 
 ### Semántica (embeddings)
 
-`engine/query/backends/semantic.py`:
+`engine/query/semantic.py`:
 
-- Embeddings persistidos en `<vault>/_meta/embeddings.sqlite` con `sqlite-vec`.
+- Vectores persistidos como `json.dumps(list[float])` en columna TEXT de `<vault>/_meta/embeddings.sqlite`. La similitud coseno se calcula en pure Python al query time. `sqlite-vec` para acelerar es roadmap, no producto actual.
+- Conexión y archivo sqlite se crean lazy en el primer rebuild/search — vault con NoopEmbedder NO materializa el sqlite phantom.
 - Default model: `nomic-embed-text` via Ollama.
-- File watcher reindexa al modificar notas (no implementado en v0.0.2 — requiere primer rebuild manual).
+- File watcher reindexa al modificar notas (no implementado todavía — requiere rebuild manual o `mcp-server --rebuild`).
 
-**Estado:** placeholder `_NoopEmbeddings` en `cli.py` — tira `NotImplementedError` si llega a `embed()`. El primitive está completo, solo falta wirear un embedder real.
+**Estado (v0.2.1):** `OllamaEmbedder` operativo opt-in. La config per-vault vive en `~/.rufino/state/vaults/<slug>.yaml`. Si `embeddings.enabled=false` (default tras materialize), el CLI resuelve `NoopEmbedder` y `--mode semantic`/`hybrid` exits 2 con mensaje accionable (`corré rufino enable-embeddings`).
 
 ### Grafo (SQLite triple store)
 
-`engine/query/backends/graph.py`:
+`engine/query/graph.py`:
 
 - Parsea el frontmatter `triples:` de cada nota → carga en SQLite (`<vault>/_meta/triples.sqlite`).
 - Coerce defensivo: `entry["o"]` a `str()`, valida `entry["r"]` es string, rechaza None.
-- Reverse traversal soportado (encontrar notas que apuntan **a** este nodo).
+- Forward y reverse traversal soportados a `depth=1` (v0.2.0).
 
 ### Facetada
 
@@ -83,7 +85,7 @@ expression: "type=apunte_clase AND created >= last_monday() AND tags contains 'm
 | Consumer | Cómo invoca |
 |---|---|
 | **MCP server `ask-rufino-<slug>`** | Expone 6+ tools (`search_vault`, `read_note`, `traverse_relations`, `list_persons`, `list_concepts`, `vault_info`). Lanzado por Claude Code anfitrión. Registrado per-vault: cada vault recibe su propio entry en `~/.claude.json`. |
-| **CLI `rufino query`** | Modo lexical operativo. `semantic`/`hybrid` exits 2 hasta que aterrice embedder. |
+| **CLI `rufino query`** | Los tres modos operativos cuando embeddings están enabled; `semantic`/`hybrid` exits 2 si están disabled. |
 | **Output adapters** | Via `query_vault()` helper. |
 | **Wizard inicial** | Para chequear si el vault ya tiene algo similar al adapter a generar. |
 
@@ -93,7 +95,7 @@ expression: "type=apunte_clase AND created >= last_monday() AND tags contains 'm
 rufino query "<query>" --vault <X> --mode {lexical|semantic|hybrid}
 ```
 
-v0.0.2: solo `--mode lexical` funciona. Output: paths relativos al vault, uno por línea.
+Output: paths relativos al vault, uno por línea. `--mode semantic` y `--mode hybrid` requieren `rufino enable-embeddings --vault <X>` previo.
 
 ## MCP server
 
@@ -126,7 +128,7 @@ Viven en `<vault>/_meta/`:
 
 ```
 _meta/
-├── embeddings.sqlite       # sqlite-vec embeddings
+├── embeddings.sqlite       # vectores como json.dumps(list[float]) — sqlite-vec en roadmap
 ├── triples.sqlite          # triple store
 └── lint-<YYYY-MM-DD>.json  # último reporte de lint
 ```
@@ -139,10 +141,9 @@ _meta/
 
 Todos los `read_text()` usan `encoding="utf-8"` explícito. UTF-8-tolerante en lectura (errors=replace) — un archivo con bytes weirdos no rompe el rebuild.
 
-## Limitaciones v0.0.2
+## Limitaciones v0.2.0
 
-- **Forward traverse `raises NotImplementedError`.** El primitive expone traverse reverse pero la versión forward está stubbed (escape hatch explícito en vez de devolver vacío silencioso).
-- **Semantic/hybrid sin embedder real.** Placeholder.
+- **Multi-hop traverse (`depth > 1`) raises NotImplementedError.** Forward y reverse están soportados ambos a `depth=1`; multi-hop queda diferido a v1.1.
 - **Sin file watcher.** Los indices no se rebuildean automáticamente al modificar notas — necesitás correr `rebuild_indices()` o relanzar el MCP server con `--rebuild`.
 - **Sin paginación.** `search()` devuelve hasta `k` resultados; queries con muchísimos matches pueden ser lentas (no es problema en vaults <10k notas).
 

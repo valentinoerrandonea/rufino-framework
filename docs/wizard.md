@@ -7,7 +7,7 @@ Cómo conduce Claude el bootstrap, qué hace por debajo, y cómo cambiarlo si qu
 Cuando corrés `rufino bootstrap`, el CLI no muestra prompts ni preguntas pre-escritas. Lo que hace es:
 
 1. Buildea un **system prompt rico** con `src/rufino/wizard/system_prompt_assembler.py`
-2. Lanza `claude -p <system-prompt>` con un toolset restringido: `Read`, `Write`, `Bash(rufino materialize:*)`, `Bash(rufino query:*)`
+2. Lanza una sesión interactiva con `claude --system-prompt <system-prompt> --allowedTools "..." -- "<kickoff>"` (NO `-p`/headless — el wizard necesita back-and-forth). El toolset queda restringido a `Read`, `Write`, `Bash(rufino materialize:*)`, `Bash(rufino query:*)`
 3. La conversación entera transcurre dentro de esa instancia de Claude. El framework no tiene state propio mientras la entrevista sucede
 
 El system prompt es lo que **transforma a Claude en el wizard** — le da identidad, lenguaje, objetivos, reglas operativas, catálogo de patterns, y un esquema de output esperado (la `WizardSpec` JSON).
