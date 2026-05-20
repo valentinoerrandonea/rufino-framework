@@ -361,8 +361,17 @@ def enable_embeddings_cmd(vault_root: Path, state_dir: Path | None, model: str) 
     snapshots: dict[Path, Path | None] = {}
     for fname in ("embeddings.sqlite", "graph.sqlite"):
         p = meta_dir / fname
+        bak = p.with_suffix(p.suffix + ".rufino-bak")
+        # Refuse to clobber a leftover snapshot from a previous crashed run —
+        # the .rufino-bak is the only good copy of the pre-rebuild state and
+        # overwriting it with the (possibly partial) live index loses that.
+        if bak.exists():
+            raise click.UsageError(
+                f"stale snapshot at {bak}. A previous `rufino enable-embeddings` "
+                f"crashed mid-way. Either restore manually "
+                f"(`mv {bak} {p}`) or delete the snapshot (`rm {bak}`) and rerun."
+            )
         if p.exists():
-            bak = p.with_suffix(p.suffix + ".rufino-bak")
             shutil.copyfile(p, bak)
             snapshots[p] = bak
         else:

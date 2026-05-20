@@ -76,14 +76,25 @@ def _scheduler_uninstall(target: str) -> None:
     ``target`` is a ``job_id`` (e.g. ``rufino-ingest-<slug>-<adapter>``).
     Backend-agnostic so the same handler works for launchd on macOS and
     cron on Linux; see ``runtime.scheduler.get_backend``.
+
+    Failures are *logged but swallowed*. The TransactionLog rollback loop
+    relies on a successful return to pop the entry, so re-raising here
+    would halt the rest of the rollback. We accept the tradeoff: an
+    orphan job is recoverable later via ``rufino list-ingests`` +
+    ``rufino uninstall-ingest <name>``, whereas a stuck rollback could
+    leave half of the install in place.
     """
+    import logging
     from rufino.runtime.scheduler import get_backend
     try:
         get_backend().uninstall(job_id=target)
-    except Exception:
-        # Rollback is best-effort: if the backend is unreachable now,
-        # leave the entry in the log so a retry can pick it up.
-        pass
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "scheduler_uninstall rollback for %r failed: %s. "
+            "Job may still be scheduled — run `rufino list-ingests` "
+            "and `rufino uninstall-ingest <name>` to clean up.",
+            target, e,
+        )
 
 
 register_rollback("rmdir", _rmdir)

@@ -177,6 +177,32 @@ def test_enable_embeddings_rolls_back_partial_sqlite_on_failure(tmp_path: Path) 
     assert not (meta / "graph.sqlite").exists()
 
 
+def test_enable_embeddings_refuses_stale_snapshot(tmp_path: Path) -> None:
+    """CR2-2 — Si hay un .rufino-bak de una corrida anterior crasheada, abort
+    en lugar de sobreescribirlo con la live index posiblemente corrupta.
+    """
+    vault = tmp_path / "v"
+    vault.mkdir()
+    meta = vault / "_meta"
+    meta.mkdir()
+    # Simula la live index (parcial) + un snapshot leftover de una corrida previa.
+    (meta / "embeddings.sqlite").write_bytes(b"PARTIAL LIVE")
+    (meta / "embeddings.sqlite.rufino-bak").write_bytes(b"GOOD PRIOR")
+
+    with patch(
+        "rufino.runtime.embedder.detect.detect_ollama",
+        return_value=_ok_detect(),
+    ):
+        result = CliRunner().invoke(
+            cli, ["enable-embeddings", "--vault", str(vault),
+                  "--state-dir", str(tmp_path / "state")],
+        )
+    assert result.exit_code != 0
+    assert "stale snapshot" in result.output.lower()
+    # El bak no debe haberse tocado.
+    assert (meta / "embeddings.sqlite.rufino-bak").read_bytes() == b"GOOD PRIOR"
+
+
 def test_enable_embeddings_rolls_back_when_state_write_fails(tmp_path: Path) -> None:
     """F11 — si write_vault_state crashea después de rebuild, el sqlite y graph
     nuevos deben revertirse al snapshot previo (o limpiarse si no había)."""
