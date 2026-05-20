@@ -31,6 +31,7 @@ class WorkerAdapterManifest:
     context_injectors: tuple[Mapping[str, Any], ...]
     transform_hook: str | None = None
     batch_size: int = _DEFAULT_BATCH_SIZE
+    compression_floor: float | None = None
 
 
 _REQUIRED = (
@@ -91,6 +92,21 @@ def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
             f"batch_size must be >= 1, got {batch_size_raw}"
         )
 
+    compression_floor_raw = raw.get("compression_floor")
+    if compression_floor_raw is not None:
+        if isinstance(compression_floor_raw, bool) or not isinstance(
+            compression_floor_raw, (int, float),
+        ):
+            raise ManifestParseError(
+                f"compression_floor must be a number, "
+                f"got {type(compression_floor_raw).__name__}"
+            )
+        if not (0.0 <= float(compression_floor_raw) <= 1.0):
+            raise ManifestParseError(
+                f"compression_floor must be in [0.0, 1.0], "
+                f"got {compression_floor_raw}"
+            )
+
     return WorkerAdapterManifest(
         adapter_name=raw["adapter_name"],
         note_type=raw["note_type"],
@@ -105,4 +121,9 @@ def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
         context_injectors=_freeze(raw.get("context_injectors", [])),
         transform_hook=raw.get("transform_hook"),
         batch_size=batch_size_raw,
+        compression_floor=(
+            float(compression_floor_raw)
+            if compression_floor_raw is not None
+            else None
+        ),
     )

@@ -92,6 +92,8 @@ def _spec_to_manifest_dict(spec: ProcessSpec) -> dict:
     }
     if spec.transform_hook_body is not None:
         d["transform_hook"] = "transform.py"
+    if spec.compression_floor is not None:
+        d["compression_floor"] = spec.compression_floor
     return d
 
 
