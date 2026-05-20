@@ -17,7 +17,7 @@ Tu asignación (worker_id={worker_id}, grupo={group}):
 {note_lines}
 
 Staging dir (escribí AQUÍ y nada más fuera de acá): {staging_dir}
-
+{compression_block}
 Para CADA nota tenés que producir dos archivos en el staging dir:
 
   - `augmented/<slug>.md` — la nota augmentada con frontmatter YAML cumpliendo
@@ -126,6 +126,16 @@ def build_worker_system_prompt(
     else:
         required_block = "  (ninguno)"
     qa_triggers_block = _format_qa_triggers(manifest.qa_triggers)
+    if manifest.compression_floor is not None:
+        floor_pct = int(round(manifest.compression_floor * 100))
+        compression_block = (
+            f"\nFidelity floor: el body reescrito debe conservar al menos el "
+            f"{floor_pct}% del volumen original (palabras del input vs palabras "
+            f"del output). Reescribir para claridad NO significa resumir. "
+            f"Si tenés que elegir entre acortar o ser fiel, sé fiel.\n"
+        )
+    else:
+        compression_block = ""
     preamble = _PREAMBLE_TEMPLATE.format(
         worker_id=assignment.worker_id,
         group=assignment.group,
@@ -135,6 +145,7 @@ def build_worker_system_prompt(
         vocab_block=vocab_block,
         required_block=required_block,
         qa_triggers_block=qa_triggers_block,
+        compression_block=compression_block,
     )
     concepts_block = ""
     if vault_concepts_top_n:

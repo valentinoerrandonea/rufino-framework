@@ -96,3 +96,44 @@ def test_retry_appendix_includes_errors():
     assert "RETRY" in appendix
     assert "expone-a" in appendix
     assert "materia" in appendix
+
+
+def test_preamble_includes_compression_floor_when_set(tmp_path):
+    manifest = parse_worker_manifest(_MANIFEST + "\ncompression_floor: 0.9\n")
+    notes = [tmp_path / "n01.md"]
+    notes[0].write_text("# n\n")
+    assignment = WorkerAssignment(
+        worker_id="w0001", group="math", notes=tuple(notes),
+    )
+    prompt = build_worker_system_prompt(
+        manifest=manifest,
+        adapter_prompt_text="adapter body",
+        assignment=assignment,
+        vault_slug="test",
+        staging_dir=tmp_path / "stage",
+        vault_concepts_top_n=[],
+        run_id="r1",
+    )
+    assert "al menos el 90% del volumen" in prompt
+    # `compression_floor` is the internal field name; it must not leak literal.
+    assert "compression_floor" not in prompt
+
+
+def test_preamble_omits_compression_floor_when_none(tmp_path):
+    manifest = parse_worker_manifest(_MANIFEST)
+    notes = [tmp_path / "n01.md"]
+    notes[0].write_text("# n\n")
+    assignment = WorkerAssignment(
+        worker_id="w0001", group="math", notes=tuple(notes),
+    )
+    prompt = build_worker_system_prompt(
+        manifest=manifest,
+        adapter_prompt_text="adapter body",
+        assignment=assignment,
+        vault_slug="test",
+        staging_dir=tmp_path / "stage",
+        vault_concepts_top_n=[],
+        run_id="r1",
+    )
+    assert "volumen original" not in prompt
+    assert "Fidelity floor" not in prompt
