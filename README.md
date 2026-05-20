@@ -1,147 +1,247 @@
+<div align="center">
+
 # Rufino Framework
 
-> Meta-arquitectura para construir tu propio sistema de gestión de conocimiento personal **conversando con Claude**, no programando.
+**Un meta-framework para construir tu propio sistema de gestión de conocimiento personal _conversando con Claude_, no programando.**
 
-Rufino Framework es una base reutilizable para armar **vaults de conocimiento** (estilo Obsidian) adaptados a tu vertical: notas de facultad, 1:1 con empleados, knowledge graph de proyectos, coaching financiero, lo que sea. La pieza distintiva es que **no escribís configs ni código**: corrés `rufino bootstrap`, Claude te entrevista en lenguaje natural, y al cerrar la conversación materializa toda la infraestructura del vault — estructura, prompts, ingestors, outputs, reglas de memoria, MCP server.
+<sub>El sistema se organiza, enriquece y conecta solo. Vos solo capturás.</sub>
+
+[![version](https://img.shields.io/badge/version-0.2.1-1f6feb?style=flat-square)](src/rufino/version.py)
+[![python](https://img.shields.io/badge/python-3.11%2B-1f6feb?style=flat-square)](pyproject.toml)
+[![tests](https://img.shields.io/badge/tests-705_passing-2ea043?style=flat-square)](tests/)
+[![platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-blueviolet?style=flat-square)](#instalación)
+[![license](https://img.shields.io/badge/license-TBD-8b949e?style=flat-square)](#licencia)
+
+[Filosofía](docs/philosophy.md) · [Getting started](docs/getting-started.md) · [Verticales](docs/use-cases.md) · [CLI reference](docs/cli-reference.md) · [Architecture](docs/architecture.md)
+
+</div>
 
 ---
 
 ## Por qué existe
 
-La mayoría de los sistemas de notas piden que **construyas tu sistema antes de usarlo**: definir databases, properties, relations, tags, taxonomy. Eso bloquea. La gente abandona Notion no por las features, abandona por el costo cognitivo de mantener el esquema vivo.
+> La mayoría de los sistemas de notas piden que **construyas tu sistema antes de usarlo**: definir databases, properties, relations, tags, taxonomy. Eso bloquea. La gente abandona Notion no por las features — abandona por el costo cognitivo de mantener el esquema vivo.
 
-Rufino invierte el patrón: vos solo **capturás**; el sistema se organiza, enriquece y conecta solo, async, vía LLMs. La primera versión (`rufino-notes-and-memory`) implementó esa filosofía para un caso concreto — la memoria personal de Val. Funcionaba bien para ese caso, pero quedó **hardcodeada** a él.
+Rufino invierte el patrón:
 
-**Rufino Framework lleva la misma filosofía un nivel más arriba:** ya no construís tu sistema de notas, pero tampoco construís tu *framework* de notas. Conversás con Claude, decís qué problema querés resolver, y el framework materializa el adapter set adecuado.
+- **Vos capturás.** Notas crudas, sin formato, donde sea.
+- **El sistema se organiza solo.** Augmenta con frontmatter, triples, tags, wikilinks vía LLMs, en async.
+- **Vos preguntás en lenguaje natural** y Claude consulta tu vault como si fuera memoria suya.
 
-Lectura más larga sobre la filosofía y el paradigma A2P que la sustenta: [`docs/philosophy.md`](docs/philosophy.md).
+La primera versión (`rufino-notes-and-memory`) implementó esa filosofía para **un caso concreto** — la memoria personal de Val. Funcionaba bien, pero quedó hardcodeada.
 
----
+**Rufino Framework lleva la misma filosofía un nivel más arriba:** ya no construís tu sistema de notas, pero tampoco construís tu *framework* de notas. Conversás con Claude, decís qué problema querés resolver, y el framework materializa el adapter set adecuado en una sola transacción (`vault + adapters + memory loop + MCP server`).
 
-## Cómo funciona
-
-```
-1.  ./install.sh                              # instala el CLI rufino en pipx
-2.  rufino bootstrap                          # arranca el wizard conversacional
-        ↓
-    Claude te entrevista (en lenguaje natural, sin jerga técnica)
-        ↓
-    Confirma el resumen de qué va a armar
-        ↓
-    Big bang: materializa vault + adapters + MCP server + memory loop
-        (transaccional — o sale todo, o nada)
-3.  Listo: tirá notas al vault, conversá con Claude en cualquier proyecto,
-    recibí los digests, consultá el vault desde el MCP `ask-rufino-<slug>`.
-```
+> Lectura completa de la filosofía y el paradigma **A2P (Assistant-Adapted Programs)** que la sustenta:
+> **[`docs/philosophy.md`](docs/philosophy.md)**
 
 ---
 
-## Lo que recibís al final del bootstrap
+## Cómo se siente
 
-- Un **vault de Obsidian** con la estructura adaptada a tu vertical (no un template — generado para tu caso puntual).
-- **Adapters** generados que cubren las 6 primitives según lo que necesite tu vertical:
-  - **Ingest** — traer data de fuentes externas (Drive, Calendar, GitHub, Spotify, etc.)
-  - **Process** — augmentar notas crudas con frontmatter, triples, tags, wikilinks
-  - **Output** — generar derivados (digests semanales, reportes mensuales, alertas)
-  - **Memory loop** — guardar al vault lo que conversás con Claude Code
-  - **Q&A loop** — preguntas que solo vos podés resolver (materia ambigua, persona nueva)
-  - **Query** — API unificada de lectura (lexical + semántico + grafo)
-- Un **MCP server `ask-rufino-<slug>`** (uno por vault) registrado en tu Claude Code, para consultarle al vault desde cualquier conversación. Varios vaults coexisten sin pisarse.
-- **Opcional** (opt-in en el wizard): hooks + skill `/remember-<slug>` en `~/.claude/` para que el framework capture y analice tus conversaciones de Claude Code y guarde lo valioso al vault automáticamente.
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│  $ ./install.sh                                                            │
+│  $ rufino bootstrap                                                        │
+│                                                                            │
+│      ─── (Claude arranca como wizard) ───                                  │
+│      "Hola, vamos a armar tu sistema. ¿Qué problema querés resolver?"      │
+│      ────────────────────────────────────                                  │
+│           ↓                                                                │
+│           conversación de 5-10 min, sin jerga técnica                      │
+│           ↓                                                                │
+│           Claude propone un resumen en lenguaje user                       │
+│           ↓                                                                │
+│           "¿Dale así, o algo no encaja?"                                   │
+│           ↓                                                                │
+│      ╔════════════════ big bang (transaccional) ════════════════╗          │
+│      ║   vault/                                                 ║          │
+│      ║     ├─ inbox/                                            ║          │
+│      ║     ├─ <entities>/                                       ║          │
+│      ║     └─ _meta/                                            ║          │
+│      ║   adapters/{ingest,process,output,memory_loop}/...       ║          │
+│      ║   ~/.claude.json  ←  ask-rufino-<slug> registrado        ║          │
+│      ║   ~/.claude/hooks/  ←  memory loop (opt-in)              ║          │
+│      ╚══════════════════════════════════════════════════════════╝          │
+│                                                                            │
+│  $ # listo. Tirá notas al vault, conversá con Claude desde cualquier       │
+│  $ # proyecto, recibí los digests, consultá vía MCP `ask-rufino-<slug>`.   │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+Si algo falla en cualquier paso del big bang, el **TransactionLog** dispara rollback completo: vault no creado, plists desinstalados, keychain limpio. **O sale todo, o nada.**
+
+---
+
+## Lo que recibís al cerrar el wizard
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+#### Vault de Obsidian adaptado
+
+Estructura **generada para tu caso**, no un template. Carpetas, frontmatter, vocabulario, triples y reglas de tagging que el wizard inventó conversando con vos.
+
+</td>
+<td width="50%" valign="top">
+
+#### Adapters operativos
+
+Implementaciones concretas de las 6 primitives (ver más abajo) que cubren tu vertical: cron schedules, prompts, templates, fetchers, hooks.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+#### MCP server por vault
+
+`ask-rufino-<slug>` registrado en `~/.claude.json`. Le preguntás a tu vault desde **cualquier** conversación con Claude Code. Varios vaults coexisten sin pisarse.
+
+</td>
+<td valign="top">
+
+#### Memory loop opt-in
+
+Hooks + skill `/remember-<slug>` en `~/.claude/` que capturan y analizan tus conversaciones de Claude Code y guardan lo valioso al vault — automáticamente, sin pedírselo cada vez.
+
+</td>
+</tr>
+</table>
+
+---
+
+## Las 6 primitives
+
+```
+                   ┌──────────────────────────────────────┐
+                   │              VAULT                   │
+                   │   (markdown + frontmatter + triples) │
+                   └──────────────────────────────────────┘
+                                    ▲
+                                    │
+   ┌─────────────────────┬──────────┴──────────┬─────────────────────┐
+   │                     │                     │                     │
+   ▼                     ▼                     ▼                     ▼
+
+ INGEST              PROCESS              OUTPUT               QUERY
+ (worker)            (worker)             (worker)             (service)
+
+ Trae data           Augmenta             Genera               API unificada
+ externa             notas crudas         derivados            (lex+sem+graph)
+ (Drive, API,        (frontmatter,        (digests,            con MCP server
+ CSV, manual)        triples, tags,       reports,             por vault
+                     wikilinks)           alertas)             (ask-rufino-X)
+
+                                          ▲
+                                          │
+                                  ┌───────┴────────┐
+                                  │                │
+                                  ▼                ▼
+
+                            MEMORY LOOP      Q&A LOOP
+                            (vertical        (question
+                             config)         template)
+
+                            Captura          Pregunta sólo
+                            convers. de      al user lo que
+                            Claude Code      no se infiere
+                            al vault         del contexto
+                            (opt-in)
+```
+
+La heterogeneidad de **shapes** (worker / service / vertical config / question template) es **intencional**: forzar uniformidad romperia el modelo. Detalle: [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
 ## Verticales de ejemplo
 
-Casos de uso donde el patrón Rufino aplica con un vault adaptado:
-
 | Vertical | Qué resuelve |
-|---|---|
-| **Notas de facultad** | Capturar clases, papers, ideas; augmentar con concept extraction; digests por materia; year-in-review académico |
+| --- | --- |
+| **Notas de facultad** | Capturar clases, papers, ideas; concept extraction; digests por materia; year-in-review académico |
 | **1:1 de empleados** | Tracking de conversaciones con cada reporte directo; bio mensual por persona; meeting prep automático |
-| **Knowledge graph de proyectos** | Decisiones técnicas, postmortems, cross-project insights via embeddings; digests por equipo |
+| **Knowledge graph de proyectos** | Decisiones técnicas, postmortems, cross-project insights vía embeddings; digests por equipo |
 | **Coaching financiero** | Transacciones + contexto narrativo; categorización; bio mensual de hábitos; year-in-review financiero |
-| **Memoria personal** | El caso original — chats, calendar, browsing, capturas en una sola memoria con grafo |
+| **Memoria personal** | El caso original: chats, calendar, browsing, capturas en una sola memoria con grafo |
 
-Más detalle en [`docs/use-cases.md`](docs/use-cases.md).
+Más detalle en [`docs/use-cases.md`](docs/use-cases.md). Para escribir un vertical nuevo: [`docs/writing-adapters.md`](docs/writing-adapters.md).
 
 ---
 
 ## Instalación
 
-Requisitos:
+<details>
+<summary><b>Requisitos</b></summary>
 
 - **macOS o Linux**
-- **Python 3.11+** (verificalo con `python3 --version`)
-- **[pipx](https://pipx.pypa.io/)** — `brew install pipx && pipx ensurepath` en macOS, o `python3 -m pip install --user pipx && python3 -m pipx ensurepath` en Linux
+- **Python 3.11+** (`python3 --version`)
+- **[pipx](https://pipx.pypa.io/)** — `brew install pipx && pipx ensurepath` (macOS) · `python3 -m pip install --user pipx && python3 -m pipx ensurepath` (Linux)
 - **[Claude Code CLI](https://github.com/anthropics/claude-code)** instalado y autenticado (`claude --version`)
-- Opcional pero recomendado: **`jq`** (`brew install jq`) — para registrar el MCP server automáticamente
+- Opcional: **`jq`** (`brew install jq`) — para registrar el MCP server automáticamente
+- Opcional para embeddings: **[Ollama](https://ollama.com/)** + `ollama pull nomic-embed-text`
 
-Instalación:
+</details>
 
 ```bash
-git clone https://github.com/<owner>/rufino-framework.git ~/rufino-framework
+git clone https://github.com/valentinoerrandonea/rufino-framework.git ~/rufino-framework
 cd ~/rufino-framework
 ./install.sh
 ```
 
 El instalador:
 
-1. Chequea que Python ≥ 3.11 y pipx estén disponibles
-2. Instala el package en un venv aislado con `pipx install -e .` (PEP 668 safe)
-3. Resuelve el bin dir de pipx y agrega `# rufino-framework` a tu shell rc si falta
-4. Crea `~/.rufino/` con la estructura base (`state/`, `backups/`, `adapters/{ingest,process,output,memory_loop}/`)
-5. Registra el MCP server `ask-rufino-<slug>` (slug = basename del vault) en `~/.claude.json` *si* exportaste `RUFINO_VAULT` apuntando a una carpeta existente; si no, el wizard lo registra al cierre del bootstrap
+1. Chequea Python ≥ 3.11 y pipx.
+2. Instala el package con `pipx install -e .` (PEP 668 safe).
+3. Resuelve el bin dir de pipx y agrega el path a tu shell rc si falta.
+4. Crea `~/.rufino/` con la estructura base (`state/`, `backups/`, `adapters/`, `tx/`).
+5. Registra el MCP server `ask-rufino-<slug>` en `~/.claude.json` si exportaste `RUFINO_VAULT`; si no, el wizard lo registra al cierre del bootstrap.
 
-Al terminar imprime:
-
-```
-Listo. Para empezar, abrí una shell nueva (o source ~/.zshrc) y corré:
-    rufino bootstrap
-```
-
-Si la instalación falla, ver [`docs/troubleshooting.md`](docs/troubleshooting.md).
+Si falla algo: [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 ---
 
 ## Quick start
 
-Después de instalar:
-
 ```bash
 rufino bootstrap
 ```
 
-Arranca el wizard conversacional. Claude te va a preguntar cosas como:
+Claude te va a preguntar cosas como:
 
 > *¿Qué problema querés resolver?*
 > *¿Qué te gustaría tener centralizado en un solo lugar?*
 > *Cuando agregás algo nuevo, ¿qué te gustaría que pase?*
 > *¿Qué resúmenes te servirían?*
 
-Al cerrar, te muestra un resumen en lenguaje natural de qué va a armar (sin jerga técnica) y te pide confirmación. Si decís sí, materializa todo en una transacción (`vault + adapters + memory loop + MCP`). Si decís no, vuelve a iterar.
+Al cerrar, te muestra un resumen en lenguaje natural de qué va a armar (sin jerga técnica) y te pide confirmación. Si decís **sí**, materializa todo en una transacción. Si decís **no**, vuelve a iterar.
 
-Lectura completa del flujo: [`docs/getting-started.md`](docs/getting-started.md). Cómo conduce Claude el wizard: [`docs/wizard.md`](docs/wizard.md).
+Flujo completo: [`docs/getting-started.md`](docs/getting-started.md). Cómo conduce Claude el wizard: [`docs/wizard.md`](docs/wizard.md).
 
 ---
 
 ## Comandos disponibles
 
-Para ver flags completos: `rufino <cmd> --help`. Referencia detallada: [`docs/cli-reference.md`](docs/cli-reference.md).
-
 | Comando | Para qué sirve |
-|---|---|
+| --- | --- |
 | `rufino bootstrap [--dry-run]` | Arranca el wizard conversacional. `--dry-run` imprime el system prompt sin lanzar Claude |
 | `rufino version` | Imprime la versión instalada |
-| `rufino materialize --spec FILE --vault X --claude-home Y --state-dir Z` | Materializa un vault desde una `WizardSpec` JSON (lo que el wizard genera) |
+| `rufino materialize --spec FILE --vault X --claude-home Y --state-dir Z` | Materializa un vault desde una `WizardSpec` JSON |
 | `rufino install-memory-loop <adapter_dir> --vault X --claude-home Y` | Instala un Memory loop adapter en `~/.claude/` |
 | `rufino ingest <adapter_dir> --vault X --state-dir Y` | Corre un Ingest adapter una vez |
-| `rufino process <note> --vault X --mode {light\|full\|lint}` | Procesa una nota. `full` single-note queda diferido — usá `process-batch` para procesar en lote |
-| `rufino process-batch <zip-or-dir>` | Batch-procesa un corpus a notas augmentadas vía Claude workers (v0.1.0). Ver [`docs/cli-reference.md#rufino-process-batch`](docs/cli-reference.md#rufino-process-batch) |
+| `rufino install-ingest <adapter_dir> --vault X` | Materializa el cron a `launchd` (macOS) / `cron` (Linux) |
+| `rufino list-ingests` · `uninstall-ingest <name>` | Listar / desinstalar jobs programados |
+| `rufino process <note> --vault X --mode {light\|full\|lint}` | Procesa una nota (full delega a `run_batch(workers=1, batch_size=1)`) |
+| `rufino process-batch <zip-or-dir>` | Batch-procesa un corpus a notas augmentadas vía Claude workers |
 | `rufino output <adapter_dir> --vault X` | Corre un Output adapter una vez |
 | `rufino qa-poll --vault X --state-dir Y` | Procesa respuestas pendientes en `questions/` |
-| `rufino query "..." --vault X --mode {lexical\|semantic\|hybrid}` | Busca en el vault. `semantic`/`hybrid` requieren embedder real (deferido) |
-| `rufino mcp-server --vault X [--no-rebuild]` | Levanta el MCP server (registrado como `ask-rufino-<slug>` por vault) por stdio |
+| `rufino query "..." --vault X --mode {lexical\|semantic\|hybrid}` | Busca en el vault |
+| `rufino detect-embeddings` | Chequea si Ollama + `nomic-embed-text` están listos |
+| `rufino enable-embeddings --vault X [--state-dir Y]` | Activa el embedder semántico para un vault |
+| `rufino disable-embeddings --vault X` | Vuelve `embeddings.enabled` a `false`. Idempotente |
+| `rufino mcp-server --vault X [--no-rebuild]` | Levanta el MCP server (registrado como `ask-rufino-<slug>`) por stdio |
+
+Referencia completa: [`docs/cli-reference.md`](docs/cli-reference.md).
 
 ---
 
@@ -155,62 +255,110 @@ git pull
 
 El upgrade:
 
-1. Lee la versión instalada de `~/.rufino/version`
-2. Compara con la del repo (declarada en `src/rufino/version.py`)
-3. Si son distintas: hace backup de `~/.rufino/` en `~/.rufino/backups/<timestamp>/`, reinstala el package con `pipx reinstall`, corre las migrations pendientes de `migrations/` en orden lexicográfico
-4. Si son iguales: imprime `Already at <version>. Nothing to do.`
+1. Lee la versión instalada en `~/.rufino/version`.
+2. Compara con la del repo (`src/rufino/version.py`).
+3. Si difieren: backup `~/.rufino/` a `~/.rufino/backups/<ts>/`, reinstala el package con pipx, corre las migrations pendientes de `migrations/` en orden lexicográfico.
+4. Si son iguales: `Already at <version>. Nothing to do.`
 
-Detalle, política de downgrades, y cómo escribir migrations: [`docs/upgrading.md`](docs/upgrading.md).
+Detalle, política de downgrades, escribir migrations: [`docs/upgrading.md`](docs/upgrading.md).
 
 ---
 
 ## Estado
 
-**v0.1.0** — `rufino process-batch` orquesta `claude` headless en paralelo
-para batch-procesar corpus enteros (ZIPs, carpetas mixtas con md/docx/pptx/pdf/txt),
-con Q&A loop end-to-end (preguntas pendientes se reanudan vía `qa-poll`).
-Algunas piezas siguen **deferidas a propósito** (no son bugs):
+> **v0.2.1** — release actual. 705 tests passing.
 
-- `transform.py` (escape hatch de código determinista en adapters) — el manifest acepta el campo, el runner todavía no lo invoca
-- `Ingest output_mode: emit_augmented` (streaming directo a Process) — manifest parsea, dispatcher no wireado
-- Single-note `rufino process --mode full` — exits con código 2; usá `process-batch` para procesar en lote
-- Embedder real (Ollama + `nomic-embed-text`) — actualmente hay un placeholder `_NoopEmbeddings` que tira `NotImplementedError`, por eso `--mode lexical` es el único totalmente operativo en `rufino query`
+#### Operativo end-to-end (v0.2.0+)
+
+- **Wizard conversacional** con system prompt rico, language rules, 6 patterns, checklist invisible y output esperado validado por `spec_schema`.
+- **Big bang materialization** con TransactionLog (vault + adapters + MCP server + memory loop hooks opt-in, rollback completo en cualquier fallo).
+- **6 primitives** wireadas: Ingest (3 output_modes: `import_raw` / `emit_facts` / `emit_augmented`), Process (light/full/lint), Output (digests + templates Jinja2), Query (lex/sem/hybrid con cross-encoder rerank), Memory loop (hooks + skill `/remember-<slug>`), Q&A loop (template + `qa-poll` resumption).
+- **Embedder opt-in** con OllamaEmbedder + cross-encoder pin reproducible; cae a lexical si falla.
+- **Scheduler real**: `launchd` en macOS, `cron` en Linux; `install-ingest` envuelto en TransactionLog.
+- **Bounded I/O**: stdout/stderr de workers capeado streaming a 1 MB (no más OOM por runaway).
+- **MCP server por vault**: stdio, registrado en `~/.claude.json`, varios vaults coexisten.
+
+#### Diferido a v0.3+
+
+- **Multi-hop graph traversal** (`depth > 1`). Forward + reverse a `depth=1` ya está.
+- **File watcher para reindex automático** — actualmente se reconstruye vía `mcp-server --rebuild` o `enable-embeddings`.
+- **Output adapters consumiendo queries semánticas** — el `_LexicalQueryAdapter` actual es solo léxico.
+- **`sqlite-vec`** para acelerar coseno (hoy: `json.dumps(vec)` en TEXT + brute force).
 
 ---
 
-## Arquitectura — vista rápida
+## Arquitectura — en una imagen
 
-El framework provee **6 primitives** (Ingest, Process, Output, Query, Memory loop, Q&A loop) con contratos versionados. El wizard genera **adapters** específicos del vertical que cumplen esos contratos. Los adapters tienen **4 shapes** heterogéneos según la primitive (worker, service, vertical config, question template) — la heterogeneidad es intencional, no un accidente.
+```
+  user input               wizard                materializer
+  (conversación) ──→  ┌──────────────┐  ──→  ┌───────────────────────┐
+                      │ system_prompt│       │ TransactionLog wraps  │
+                      │ + Claude     │       │ every disk/keychain/  │
+                      │ interactive  │       │ launchd op            │
+                      └──────────────┘       │  ↓                    │
+                              ↓              │  vault + adapters     │
+                              └────WizardSpec│  + MCP server         │
+                                  (validated)│  + memory loop hooks  │
+                                             │  + cron jobs          │
+                                             └───────────────────────┘
+                                                       │
+                                            success    │   any failure
+                                              ┌────────┴────────┐
+                                              ↓                 ↓
+                                          ready to use     rollback() —
+                                                            inverse op
+                                                            for every
+                                                            recorded
+                                                            step, in
+                                                            reverse order
+```
 
-La abstracción load-bearing es el **transaction log** (`runtime/transaction_log.py`): cada operación que toca disco/keychain/launchd se registra con su inverso, y cualquier fallo durante materialización dispara rollback completo. Eso es lo que hace posible el "big bang" del bootstrap.
-
-Vista de alto nivel para contribuidores: [`docs/architecture.md`](docs/architecture.md).
+Detalle: [`docs/architecture.md`](docs/architecture.md). Internals del runtime: [`docs/runtime.md`](docs/runtime.md).
 
 ---
 
 ## Documentación
 
-Índice completo en [`docs/README.md`](docs/README.md). Atajos:
+<table>
+<tr>
+<td valign="top" width="50%">
 
-**Para usar el framework:**
+#### Para usar el framework
+
 - [Filosofía](docs/philosophy.md) — qué es y por qué existe
-- [Getting started](docs/getting-started.md) — primer bootstrap paso a paso
-- [Conceptos](docs/concepts.md) — vocabulario (vault, adapter, primitive, etc.)
+- [Getting started](docs/getting-started.md) — primer bootstrap
+- [Conceptos](docs/concepts.md) — vocabulario base
 - [Casos de uso](docs/use-cases.md) — verticales target
-- [El wizard](docs/wizard.md) — cómo conduce Claude la entrevista
-- [CLI reference](docs/cli-reference.md) — cada comando y flag
-- [Upgrading](docs/upgrading.md) — versionado y migrations
+- [El wizard](docs/wizard.md) — cómo conduce Claude
+- [CLI reference](docs/cli-reference.md) — cada comando
+- [Upgrading](docs/upgrading.md) — versionado + migrations
 - [Troubleshooting](docs/troubleshooting.md) — problemas comunes
 
-**Para contribuir / escribir adapters:**
-- [Architecture](docs/architecture.md) — overview para desarrolladores
-- [Writing adapters](docs/writing-adapters.md) — guía para autores de adapters
-- [Runtime internals](docs/runtime.md) — transaction log, sandbox, scheduler, secrets
+</td>
+<td valign="top" width="50%">
+
+#### Para contribuir / escribir adapters
+
+- [Architecture](docs/architecture.md) — overview para devs
+- [Writing adapters](docs/writing-adapters.md) — guía
+- [Runtime internals](docs/runtime.md) — tx log, sandbox, scheduler, secrets
 - [Primitives](docs/primitives/) — schema por primitive
 - [Adapter shapes](docs/adapters/) — los 4 shapes en detalle
+- [Codereview history](docs/codereview/) — reviews por release
+- [Plans](docs/superpowers/plans/) — planes de implementación
+
+</td>
+</tr>
+</table>
 
 ---
 
 ## Licencia
 
-(TBD — definir cuando se cierre la decisión de distribución, ver `decisionDistribucionRepoPrivado` en el vault.)
+TBD — definir cuando se cierre la decisión de distribución (ver `decisionDistribucionRepoPrivado` en el vault de Val).
+
+---
+
+<div align="center">
+<sub>Construido con Claude Code · v0.2.1 · 2026</sub>
+</div>
