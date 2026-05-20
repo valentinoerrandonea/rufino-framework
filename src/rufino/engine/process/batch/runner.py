@@ -27,7 +27,7 @@ from rufino.engine.process.batch.qa_pending import (
 )
 from rufino.engine.process.batch.retry import retry_failed
 from rufino.engine.process.batch.runner_helper import MAX_OUTPUT_BYTES
-from rufino.engine.process.batch.stager import stage_corpus
+from rufino.engine.process.batch.stager import StagedCorpus, stage_corpus
 from rufino.engine.process.batch.validator import (
     NoteValidation,
     check_compression_ratio,
@@ -93,7 +93,7 @@ def _ensure_gitignore(vault_root: Path) -> None:
     tmp.replace(gi)
 
 
-def _find_staged_input(staged, slug: str) -> Path | None:
+def _find_staged_input(staged: StagedCorpus, slug: str) -> Path | None:
     """Locate the staged input file whose stem matches the given slug.
 
     Returns None when the slug was minted from a source that no longer maps
