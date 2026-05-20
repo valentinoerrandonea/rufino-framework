@@ -110,6 +110,11 @@ context_injectors:
     query: "<query-expression>"       # usado para inyectar contexto en el prompt
 
 transform_hook: ./transform.py        # opcional; ejecuta entre VALIDATE y CONSOLIDATE (v0.2.0+)
+
+compression_floor: 0.9                # opcional; float en [0.0, 1.0] (v0.3.0+)
+                                      # mínimo ratio output_words / input_words aceptable
+                                      # el engine inyecta una instrucción al worker y loguea
+                                      # warning si el body queda por debajo (advisory, no falla)
 ```
 
 ## Validador del manifest

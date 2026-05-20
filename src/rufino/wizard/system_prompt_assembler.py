@@ -66,6 +66,14 @@ Tanto los sources como las entries de ``processing[]`` aceptan
 al manifest. El runtime invoca ``transform()`` entre fetch/write (Ingest) o
 VALIDATE/CONSOLIDATE (Process); fallos degradan al record original.
 
+Las entries de ``processing[]`` también aceptan ``compression_floor``
+opcional (float entre 0.0 y 1.0): mínimo ratio output/input aceptable para
+el body reescrito. Útil para verticales de estudio o documentación donde la
+fidelidad al volumen importa. Ejemplo: ``0.9`` = el body procesado debe
+tener al menos 90% del wordcount del original; el engine inyecta una
+instrucción al worker y loguea warnings si el ratio cae por debajo. Sin
+``compression_floor`` no hay restricción (default v0.2.x).
+
 ## 4. Patterns iniciales
 
 {% for p in patterns %}
