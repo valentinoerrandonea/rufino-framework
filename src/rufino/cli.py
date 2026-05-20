@@ -358,19 +358,33 @@ def enable_embeddings_cmd(vault_root: Path, state_dir: Path | None, model: str) 
     # Use file-based snapshots (shutil.copyfile) instead of read_bytes() so
     # vaults with 10k+ notes don't pin a multi-MB blob in memory during rebuild.
     meta_dir = vault_root / "_meta"
+    index_files = ("embeddings.sqlite", "graph.sqlite")
+    # Refuse to clobber leftover snapshots from a previous crashed run —
+    # the .rufino-bak files are the only good copies of the pre-rebuild
+    # state and overwriting them with the (possibly partial) live index
+    # loses that. Report ALL stale snapshots in one shot so the user
+    # cleans up in one cycle instead of N.
+    stale = [
+        (meta_dir / fname).with_suffix(
+            (meta_dir / fname).suffix + ".rufino-bak"
+        )
+        for fname in index_files
+        if (meta_dir / fname).with_suffix(
+            (meta_dir / fname).suffix + ".rufino-bak"
+        ).exists()
+    ]
+    if stale:
+        bullet = "\n  - ".join(str(s) for s in stale)
+        raise click.UsageError(
+            f"stale snapshot(s) from a previous crashed `rufino enable-embeddings`:\n"
+            f"  - {bullet}\n"
+            f"For each: either restore (`mv <bak> <bak-without-.rufino-bak>`) "
+            f"or delete (`rm <bak>`) and rerun."
+        )
     snapshots: dict[Path, Path | None] = {}
-    for fname in ("embeddings.sqlite", "graph.sqlite"):
+    for fname in index_files:
         p = meta_dir / fname
         bak = p.with_suffix(p.suffix + ".rufino-bak")
-        # Refuse to clobber a leftover snapshot from a previous crashed run —
-        # the .rufino-bak is the only good copy of the pre-rebuild state and
-        # overwriting it with the (possibly partial) live index loses that.
-        if bak.exists():
-            raise click.UsageError(
-                f"stale snapshot at {bak}. A previous `rufino enable-embeddings` "
-                f"crashed mid-way. Either restore manually "
-                f"(`mv {bak} {p}`) or delete the snapshot (`rm {bak}`) and rerun."
-            )
         if p.exists():
             shutil.copyfile(p, bak)
             snapshots[p] = bak

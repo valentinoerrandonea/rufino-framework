@@ -1,10 +1,14 @@
 import json
+import logging
 import os
 import shutil
 import threading
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Callable, Any
+
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -84,12 +88,11 @@ def _scheduler_uninstall(target: str) -> None:
     ``rufino uninstall-ingest <name>``, whereas a stuck rollback could
     leave half of the install in place.
     """
-    import logging
     from rufino.runtime.scheduler import get_backend
     try:
         get_backend().uninstall(job_id=target)
     except Exception as e:
-        logging.getLogger(__name__).warning(
+        log.warning(
             "scheduler_uninstall rollback for %r failed: %s. "
             "Job may still be scheduled — run `rufino list-ingests` "
             "and `rufino uninstall-ingest <name>` to clean up.",
