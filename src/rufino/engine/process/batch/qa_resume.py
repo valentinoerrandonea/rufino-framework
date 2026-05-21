@@ -281,6 +281,7 @@ async def _resume_pending_qa_locked(
     plan = ConsolidationPlan(
         moves=[{"from": str(rel_from), "to": dest_rel}],
         concept_writes=[],
+        author_writes=[],
         tag_index_updates=[],
         log_entries=[f"batch-qa-resume run={run_id} slug={slug}"],
     )
