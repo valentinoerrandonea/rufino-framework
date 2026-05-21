@@ -290,6 +290,46 @@ def test_commit_rejects_author_write_with_path_traversal(tmp_path):
     assert not (tmp_path / "escape.md").exists()
 
 
+def test_commit_author_write_new_rollback_deletes_file(tmp_path):
+    """When a new author write succeeds but a later op fails, rollback
+    must delete the freshly-created file."""
+    vault, run = _setup_run(tmp_path)
+    plan = ConsolidationPlan(
+        author_writes=[
+            {"path": "autores/porter.md", "content": "BIO\n"},
+            # Second entry raises mid-loop AFTER porter.md was committed:
+            {"path": "apuntes/drucker.md", "content": "X"},
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    with pytest.raises(ValueError, match="under autores"):
+        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+    assert not (vault / "autores" / "porter.md").exists()
+
+
+def test_commit_rejects_author_write_when_autores_is_symlink(tmp_path):
+    """Symlink escape: if `vault/autores` is a symlink to a path INSIDE
+    the vault (so `_safe_in_vault` cannot catch it), the
+    `is_relative_to(autores_root)` check passes too because BOTH paths
+    resolve through the same symlink — author writes silently land in
+    the symlink target. Reject before any disk op.
+    """
+    vault, run = _setup_run(tmp_path)
+    inside_decoy = vault / "decoy"
+    inside_decoy.mkdir()
+    (vault / "autores").symlink_to(inside_decoy)
+
+    plan = ConsolidationPlan(
+        author_writes=[
+            {"path": "autores/porter.md", "content": "X"},
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    with pytest.raises(ValueError, match="symlink"):
+        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+    assert not (inside_decoy / "porter.md").exists()
+
+
 def test_commit_author_write_overwrites_existing_and_rollback_restores(tmp_path):
     """Overwriting an existing autores/<slug>.md must snapshot first so
     rollback restores the old content."""

@@ -192,6 +192,13 @@ def commit(
                     rollback="delete",
                 )
 
+        if plan.author_writes:
+            autores_dir = vault_root / "autores"
+            if autores_dir.is_symlink():
+                raise ValueError(
+                    "vault autores/ must not be a symlink — refusing "
+                    "author_writes to avoid escape via symlink target"
+                )
         autores_root = (vault_root / "autores").resolve()
         for aw in plan.author_writes:
             dest = _safe_in_vault(vault_root, aw["path"])
