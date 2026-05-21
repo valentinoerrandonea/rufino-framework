@@ -60,4 +60,22 @@ BUILT_IN_CHECKS: tuple[PrereqCheck, ...] = (
                 for_feature="GitHub ingestor"),
     PrereqCheck(name="ripgrep", kind="command", target="rg",
                 for_feature="lexical search performance"),
+    PrereqCheck(name="soffice", kind="command", target="soffice",
+                for_feature="multimodal DOCX/PPTX processing"),
 )
+
+
+def check_soffice_available() -> tuple[bool, str]:
+    """Convenience wrapper used by ``process-batch --multimodal`` to fail fast
+    when LibreOffice is not installed.
+
+    Returns ``(available, human_message)``. The message is actionable when
+    missing — it includes the macOS install command so users can copy-paste.
+    """
+    path = shutil.which("soffice")
+    if path:
+        return True, f"soffice found at {path}"
+    return False, (
+        "soffice not found in PATH — multimodal mode requires LibreOffice. "
+        "Install on macOS with: brew install --cask libreoffice"
+    )

@@ -94,3 +94,36 @@ def test_process_batch_multimodal_defaults_to_false(
         ])
     assert result.exit_code == 0, result.output
     assert mock_run.call_args.kwargs["multimodal"] is False
+
+
+def test_process_batch_multimodal_fails_fast_without_soffice(
+    tmp_path, monkeypatch, batch_adapter
+):
+    """When --multimodal is set but soffice is absent, the CLI must exit 127
+    before touching the runner — fail-fast, not mid-batch."""
+    from unittest.mock import patch, AsyncMock
+
+    monkeypatch.setattr("shutil.which", lambda name: None)
+
+    adapter = batch_adapter()
+    source = tmp_path / "corpus"
+    (source / "math").mkdir(parents=True)
+    (source / "math" / "n1.md").write_text("# n\n")
+    vault = tmp_path / "vault"
+
+    runner = CliRunner()
+    with patch(
+        "rufino.cli.run_batch",
+        new_callable=AsyncMock,
+    ) as mock_run:
+        result = runner.invoke(cli, [
+            "process-batch", str(source),
+            "--adapter", str(adapter),
+            "--vault", str(vault),
+            "--dry-run",
+            "--multimodal",
+        ])
+
+    assert result.exit_code == 127, result.output
+    assert "libreoffice" in result.output.lower() or "brew install" in result.output.lower()
+    mock_run.assert_not_called()

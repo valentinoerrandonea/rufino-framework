@@ -591,6 +591,12 @@ def process_batch_cmd(
     multimodal: bool,
 ) -> None:
     """Process a corpus (ZIP or directory) into augmented vault notes."""
+    if multimodal:
+        from rufino.runtime.prereq_checker import check_soffice_available
+        available, msg = check_soffice_available()
+        if not available:
+            click.echo(f"Error: {msg}", err=True)
+            raise click.exceptions.Exit(code=127)
     try:
         result = asyncio.run(run_batch(
             source=source, adapter_dir=adapter_dir, vault_root=vault_root,
