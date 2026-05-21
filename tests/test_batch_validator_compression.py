@@ -66,3 +66,26 @@ def test_check_compression_ratio_skipped_when_floor_is_none(tmp_path: Path):
         original=original, augmented=augmented, floor=None,
     )
     assert result is None
+
+
+def test_check_compression_ratio_skipped_when_original_is_pdf(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture,
+):
+    # Multimodal mode stages DOCX/PPTX as .pdf; binary bytes treated as text
+    # would explode the word count and produce spurious below-floor warnings.
+    original = tmp_path / "original.pdf"
+    augmented = tmp_path / "augmented.md"
+    original.write_bytes(b"%PDF-1.4\n" + b"\x00" * 4096)
+    _write_note(augmented, 100)
+
+    caplog.set_level(
+        logging.WARNING, logger="rufino.engine.process.batch.validator",
+    )
+    result = check_compression_ratio(
+        original=original, augmented=augmented, floor=0.9,
+    )
+    assert result is None
+    assert not any(
+        "compression below floor" in r.message.lower()
+        for r in caplog.records
+    )
