@@ -75,3 +75,60 @@ def test_validate_plan_rejects_tag_update_notes_not_list():
     }
     with pytest.raises(ConsolidationError, match="tag_index_update"):
         validate_consolidation_plan(raw)
+
+
+def test_plan_accepts_author_writes():
+    raw = {
+        "moves": [],
+        "concept_writes": [],
+        "author_writes": [
+            {
+                "path": "autores/porter.md",
+                "content": (
+                    "---\ntipo: persona\n---\n# Michael Porter\n\nBio.\n"
+                ),
+                "wins_over": [],
+            },
+        ],
+        "tag_index_updates": [],
+        "log_entries": [],
+    }
+    plan = validate_consolidation_plan(raw)
+    assert len(plan.author_writes) == 1
+    assert plan.author_writes[0]["path"] == "autores/porter.md"
+
+
+def test_plan_defaults_author_writes_to_empty_when_missing():
+    """Backward compat: plans v0.2.x without author_writes parse to empty."""
+    raw = {
+        "moves": [],
+        "concept_writes": [],
+        "tag_index_updates": [],
+        "log_entries": [],
+    }
+    plan = validate_consolidation_plan(raw)
+    assert plan.author_writes == []
+
+
+def test_plan_rejects_author_write_missing_content():
+    raw = {
+        "moves": [],
+        "concept_writes": [],
+        "author_writes": [{"path": "autores/porter.md"}],
+        "tag_index_updates": [],
+        "log_entries": [],
+    }
+    with pytest.raises(ConsolidationError, match="author_write"):
+        validate_consolidation_plan(raw)
+
+
+def test_plan_rejects_author_writes_not_list():
+    raw = {
+        "moves": [],
+        "concept_writes": [],
+        "author_writes": "not-a-list",
+        "tag_index_updates": [],
+        "log_entries": [],
+    }
+    with pytest.raises(ConsolidationError, match="author_writes"):
+        validate_consolidation_plan(raw)

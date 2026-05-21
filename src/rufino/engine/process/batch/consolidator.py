@@ -50,6 +50,7 @@ el plan path.
 class ConsolidationPlan:
     moves: list[dict[str, str]] = field(default_factory=list)
     concept_writes: list[dict[str, Any]] = field(default_factory=list)
+    author_writes: list[dict[str, Any]] = field(default_factory=list)
     tag_index_updates: list[dict[str, Any]] = field(default_factory=list)
     log_entries: list[str] = field(default_factory=list)
 
@@ -66,12 +67,18 @@ def validate_consolidation_plan(raw: dict[str, Any]) -> ConsolidationPlan:
     for k in required_keys:
         if not isinstance(raw[k], list):
             raise ConsolidationError(f"field {k!r} must be a list")
+    author_writes_raw = raw.get("author_writes", [])
+    if not isinstance(author_writes_raw, list):
+        raise ConsolidationError("field 'author_writes' must be a list")
     for m in raw["moves"]:
         if not isinstance(m, dict) or "from" not in m or "to" not in m:
             raise ConsolidationError(f"bad move entry: {m!r}")
     for cw in raw["concept_writes"]:
         if not isinstance(cw, dict) or "path" not in cw or "content" not in cw:
             raise ConsolidationError(f"bad concept_write entry: {cw!r}")
+    for aw in author_writes_raw:
+        if not isinstance(aw, dict) or "path" not in aw or "content" not in aw:
+            raise ConsolidationError(f"bad author_write entry: {aw!r}")
     for tu in raw["tag_index_updates"]:
         if (
             not isinstance(tu, dict)
@@ -82,6 +89,7 @@ def validate_consolidation_plan(raw: dict[str, Any]) -> ConsolidationPlan:
     return ConsolidationPlan(
         moves=list(raw["moves"]),
         concept_writes=list(raw["concept_writes"]),
+        author_writes=list(author_writes_raw),
         tag_index_updates=list(raw["tag_index_updates"]),
         log_entries=list(raw["log_entries"]),
     )
