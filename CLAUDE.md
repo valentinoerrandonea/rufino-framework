@@ -109,13 +109,24 @@ The big-bang v0.2.0 release closed the 12 gaps that shipped half-wired in v0.1.0
 - Bounded I/O — worker stdout/stderr capped at `MAX_OUTPUT_BYTES` (1MB).
 - Worker IDs widened to `:04d`.
 
-### Deferred for v0.3+
+### What landed in v0.3.0 (corpus quality)
 
-Rough edges intentionally NOT fixed in v0.2.0:
+Closed the four critical gaps surfaced by the facultad vault bootstrap session (2026-05-20):
 
-- **Multi-hop graph traversal** (`depth > 1`) — `GraphBackend.traverse` raises `NotImplementedError`. Forward + reverse at depth=1 are wired; multi-hop is a v0.3 ticket.
+- **`compression_floor` on ProcessSpec** — optional float (0.0–1.0) that injects a fidelity constraint into the worker preamble and triggers a warning when the augmented body falls below the ratio. Adapters that prioritise study/reference fidelity should set this to ~0.9. Defaults to `None` (v0.2.x behavior).
+- **`author_writes` in ConsolidationPlan** — the consolidator now emits enriched author notes (bio + obra + por qué importa) in addition to concept stubs. The committer writes them under `autores/<slug>.md`. Backward compatible with v0.2.x plans (`author_writes` defaults to `[]` when missing).
+- **Enriched concept bodies** — the consolidator preamble now requires definición + contexto + ejemplo + relacionado-con + formulado-por for every `concept_write` content, drawing from the augmented notes where the concept appears. No more `_Expandi con tu propia explicacion_` placeholders.
+- **`--multimodal` flag on process-batch** — opt-in. Converts DOCX/PPTX to PDF via `soffice --headless --convert-to pdf`, preserving embedded diagrams/images for the worker (which reads the PDF natively with vision). Requires LibreOffice in PATH; the CLI fails fast with an install hint when missing. Default off — v0.2.x mammoth/python-pptx flatten-to-text path stays unchanged.
+
+### Deferred for v0.4+
+
+Rough edges intentionally NOT fixed in v0.3.0:
+
+- **Multi-hop graph traversal** (`depth > 1`) — `GraphBackend.traverse` raises `NotImplementedError`. Forward + reverse at depth=1 are wired; multi-hop is still pending.
 - **File watcher for indices** — semantic + graph rebuild manually via `rufino enable-embeddings` or `mcp-server --rebuild`. No auto-rebuild on note edit.
 - **Output adapter consumption of semantic queries** — `_LexicalQueryAdapter` is lexical-only; output adapters that want semantic results must call `rufino query --mode semantic` from an external trigger and template the output over the result.
+- **Parallel consolidator enrichment** for large corpora (>200 concepts). See `docs/superpowers/specs/2026-05-20-consolidator-enrichment-parallel.md`.
+- **Hard-fail (retry) on compression below floor** instead of just warning — v0.3 emits a warning only; v0.4 may re-prompt the worker.
 
 ## Versioning + migrations
 
