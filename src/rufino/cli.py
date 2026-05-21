@@ -580,15 +580,22 @@ def materialize_cmd(
               help="Override the adapter manifest's batch_size")
 @click.option("--dry-run", is_flag=True,
               help="Stop after PLAN; print the plan path; do not spawn workers")
+@click.option("--multimodal", is_flag=True, default=False,
+              help="Render DOCX/PPTX to PDF via LibreOffice instead of "
+                   "flattening to markdown. The worker reads the PDF natively "
+                   "(with vision), preserving embedded diagrams and images. "
+                   "Requires `soffice` in PATH.")
 def process_batch_cmd(
     source: Path, adapter_dir: Path, vault_root: Path,
     workers: int | None, batch_size: int | None, dry_run: bool,
+    multimodal: bool,
 ) -> None:
     """Process a corpus (ZIP or directory) into augmented vault notes."""
     try:
         result = asyncio.run(run_batch(
             source=source, adapter_dir=adapter_dir, vault_root=vault_root,
             workers=workers, batch_size=batch_size, dry_run=dry_run,
+            multimodal=multimodal,
         ))
     except WorkerSessionExpiredError as e:
         click.echo(f"Error: {e}", err=True)
