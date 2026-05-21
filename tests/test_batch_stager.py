@@ -20,6 +20,10 @@ _REQUIRES_PPTX = pytest.mark.skipif(
     importlib.util.find_spec("pptx") is None,
     reason="python-pptx not installed",
 )
+_REQUIRES_SOFFICE = pytest.mark.skipif(
+    shutil.which("soffice") is None,
+    reason="soffice not in PATH (LibreOffice not installed)",
+)
 
 
 def _make_zip(path: Path, files: dict[str, bytes], cp437_names: bool = False):
@@ -211,3 +215,79 @@ def test_stage_rejects_collision_after_extension_normalization(
 
     with pytest.raises(StagingError, match="collision"):
         stage_corpus(source, run_dir)
+
+
+@_REQUIRES_SOFFICE
+def test_stage_docx_to_pdf_when_multimodal(tmp_path, batch_fixtures_dir):
+    """In multimodal mode, a .docx is staged as a .pdf produced by soffice,
+    bypassing the mammoth -> markdown path entirely."""
+    source = tmp_path / "source"
+    (source / "materia1").mkdir(parents=True)
+    shutil.copy(batch_fixtures_dir / "hello.docx", source / "materia1" / "apunte.docx")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    staged = stage_corpus(source, run_dir, multimodal=True)
+
+    assert "materia1" in staged.groups
+    files = staged.groups["materia1"]
+    assert len(files) == 1
+    assert files[0].suffix == ".pdf"
+    assert files[0].read_bytes()[:5] == b"%PDF-"
+
+
+@_REQUIRES_SOFFICE
+def test_stage_pptx_to_pdf_when_multimodal(tmp_path, batch_fixtures_dir):
+    source = tmp_path / "source"
+    (source / "materia1").mkdir(parents=True)
+    shutil.copy(batch_fixtures_dir / "hello.pptx", source / "materia1" / "slides.pptx")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    staged = stage_corpus(source, run_dir, multimodal=True)
+
+    files = staged.groups["materia1"]
+    assert files[0].suffix == ".pdf"
+    assert files[0].read_bytes()[:5] == b"%PDF-"
+
+
+@_REQUIRES_MAMMOTH
+def test_stage_docx_to_md_when_not_multimodal_default(
+    tmp_path, batch_fixtures_dir
+):
+    """Default behavior (v0.2.x): .docx is flattened to .md via mammoth."""
+    source = tmp_path / "source"
+    (source / "materia1").mkdir(parents=True)
+    shutil.copy(batch_fixtures_dir / "hello.docx", source / "materia1" / "apunte.docx")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    staged = stage_corpus(source, run_dir)
+
+    files = staged.groups["materia1"]
+    assert files[0].suffix == ".md"
+
+
+def test_stage_multimodal_skips_docx_when_soffice_missing(
+    tmp_path, batch_fixtures_dir, monkeypatch, caplog
+):
+    """If soffice disappears mid-batch, the file is skipped (logged), not
+    raised — keeps the rest of the corpus moving."""
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: None,
+    )
+    source = tmp_path / "source"
+    (source / "materia1").mkdir(parents=True)
+    shutil.copy(batch_fixtures_dir / "hello.docx", source / "materia1" / "apunte.docx")
+    (source / "materia1" / "other.md").write_text("# survives\n")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    import logging as _logging
+    with caplog.at_level(_logging.WARNING, logger="rufino.engine.process.batch.stager"):
+        staged = stage_corpus(source, run_dir, multimodal=True)
+
+    files = staged.groups["materia1"]
+    assert [f.name for f in files] == ["other.md"]
+    assert any("soffice" in r.getMessage().lower() for r in caplog.records)
