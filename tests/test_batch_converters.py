@@ -1,4 +1,5 @@
 import logging
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,7 +9,9 @@ pytest.importorskip("mammoth")
 pytest.importorskip("pptx")
 
 from rufino.engine.process.batch.converters import (
+    SofficeNotFoundError,
     convert_to_markdown,
+    convert_to_pdf,
     docx_to_md,
     pptx_to_md,
 )
@@ -174,3 +177,44 @@ def test_docx_warnings_are_logged(tmp_path, caplog, monkeypatch):
     messages = [rec.getMessage() for rec in caplog.records]
     assert any("image dropped" in m for m in messages)
     assert any("unrecognized style 'Foo'" in m for m in messages)
+
+
+@pytest.mark.skipif(
+    shutil.which("soffice") is None,
+    reason="soffice not in PATH (LibreOffice not installed)",
+)
+def test_convert_to_pdf_produces_valid_pdf_for_docx(
+    tmp_path: Path, batch_fixtures_dir: Path,
+):
+    src = batch_fixtures_dir / "hello.docx"
+    out = convert_to_pdf(src, out_dir=tmp_path)
+    assert out.exists()
+    assert out.suffix == ".pdf"
+    # PDFs start with `%PDF-`.
+    assert out.read_bytes()[:5] == b"%PDF-"
+
+
+@pytest.mark.skipif(
+    shutil.which("soffice") is None,
+    reason="soffice not in PATH (LibreOffice not installed)",
+)
+def test_convert_to_pdf_produces_valid_pdf_for_pptx(
+    tmp_path: Path, batch_fixtures_dir: Path,
+):
+    src = batch_fixtures_dir / "hello.pptx"
+    out = convert_to_pdf(src, out_dir=tmp_path)
+    assert out.exists()
+    assert out.read_bytes()[:5] == b"%PDF-"
+
+
+def test_convert_to_pdf_raises_when_soffice_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: None,
+    )
+    src = tmp_path / "fake.docx"
+    src.write_bytes(b"dummy")
+    with pytest.raises(SofficeNotFoundError, match="soffice not found"):
+        convert_to_pdf(src, out_dir=tmp_path)

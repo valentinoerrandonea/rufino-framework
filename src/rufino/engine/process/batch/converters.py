@@ -5,8 +5,14 @@ Markdown and plain text pass through unchanged. .docx → markdown via mammoth.
 (.doc, .ppt) and unknown extensions raise UnsupportedFormatError. PDFs also
 raise — they are passthrough at the stager level (the worker reads them via
 the Read tool directly).
+
+In multimodal mode (opt-in via the stager), .docx and .pptx are instead
+rendered to .pdf via LibreOffice headless (``convert_to_pdf``), preserving
+embedded diagrams/images that mammoth/python-pptx flatten away.
 """
 import logging
+import shutil
+import subprocess
 from pathlib import Path
 
 from rufino.engine.process.batch.errors import (
@@ -15,6 +21,68 @@ from rufino.engine.process.batch.errors import (
 )
 
 _log = logging.getLogger(__name__)
+
+
+class SofficeNotFoundError(RuntimeError):
+    """Raised when LibreOffice (soffice) is required but not in PATH.
+
+    Distinct from ``ConversionError``: this signals a missing system-level
+    dependency (config problem), not a runtime conversion failure.
+    """
+
+
+def _which_soffice() -> str | None:
+    """Indirection so tests can monkeypatch the lookup."""
+    return shutil.which("soffice")
+
+
+def convert_to_pdf(
+    path: Path, *, out_dir: Path, timeout: float = 120.0,
+) -> Path:
+    """Convert a .docx/.pptx (or any soffice-supported format) to PDF.
+
+    Uses LibreOffice headless (``soffice --headless --convert-to pdf``) so the
+    worker's ``Read`` tool can ingest the document natively with vision,
+    preserving diagrams, charts and images that the markdown converters drop.
+
+    Returns the path to the output PDF inside ``out_dir``.
+
+    Raises:
+        SofficeNotFoundError: when ``soffice`` is not in PATH.
+        ConversionError: when soffice times out, exits non-zero, or produces
+            no output file.
+    """
+    soffice = _which_soffice()
+    if soffice is None:
+        raise SofficeNotFoundError(
+            "soffice not found in PATH — install LibreOffice "
+            "(macOS: brew install --cask libreoffice) to use multimodal mode."
+        )
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        soffice, "--headless", "--convert-to", "pdf",
+        "--outdir", str(out_dir), str(path),
+    ]
+    try:
+        result = subprocess.run(  # noqa: S603 (cmd built from trusted args)
+            cmd, capture_output=True, timeout=timeout, check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise ConversionError(
+            f"soffice conversion timed out after {timeout}s for {path}"
+        ) from e
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace")[:500]
+        raise ConversionError(
+            f"soffice failed for {path}: exit={result.returncode} "
+            f"stderr={stderr}"
+        )
+    out_pdf = out_dir / (path.stem + ".pdf")
+    if not out_pdf.exists():
+        raise ConversionError(
+            f"soffice did not produce expected output {out_pdf}"
+        )
+    return out_pdf
 
 
 def docx_to_md(path: Path) -> str:
