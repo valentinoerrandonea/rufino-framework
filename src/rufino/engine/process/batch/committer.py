@@ -192,6 +192,39 @@ def commit(
                     rollback="delete",
                 )
 
+        autores_root = (vault_root / "autores").resolve()
+        for aw in plan.author_writes:
+            dest = _safe_in_vault(vault_root, aw["path"])
+            if not dest.is_relative_to(autores_root):
+                raise ValueError(
+                    f"author_write must target a path under autores/, "
+                    f"got {aw['path']!r}"
+                )
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            content = aw["content"]
+
+            def _do_write(dest=dest, content=content) -> None:
+                dest.write_text(content, encoding="utf-8")
+
+            if dest.exists():
+                snap = _new_backup_path(run_dir, dest.stem)
+                shutil.copy2(dest, snap)
+                apply_and_log(
+                    tx_log,
+                    op="batch_author_write_overwrite",
+                    target=f"{dest}{_NUL}{snap}",
+                    apply_fn=_do_write,
+                    rollback="batch_undo_snapshot_restore",
+                )
+            else:
+                apply_and_log(
+                    tx_log,
+                    op="batch_author_write_new",
+                    target=str(dest),
+                    apply_fn=_do_write,
+                    rollback="delete",
+                )
+
         if plan.tag_index_updates:
             tag_index = vault_root / "_meta" / "_tags.md"
             tag_index.parent.mkdir(parents=True, exist_ok=True)

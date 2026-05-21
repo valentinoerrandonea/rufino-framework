@@ -234,6 +234,82 @@ def test_commit_rejects_case_only_duplicate_destinations(tmp_path):
         commit(plan=plan, vault_root=vault, run_dir=run_dir, tx_log=tx)
 
 
+def test_commit_writes_authors_to_autores_dir(tmp_path):
+    """Author writes from the consolidation plan land under autores/."""
+    vault, run = _setup_run(tmp_path)
+    plan = ConsolidationPlan(
+        author_writes=[
+            {
+                "path": "autores/porter.md",
+                "content": (
+                    "---\ntipo: persona\n---\n# Michael Porter\n\nBio.\n"
+                ),
+                "wins_over": [],
+            },
+            {
+                "path": "autores/drucker.md",
+                "content": "---\ntipo: persona\n---\n# Peter Drucker\n",
+                "wins_over": [],
+            },
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+
+    assert (vault / "autores" / "porter.md").exists()
+    assert (vault / "autores" / "drucker.md").exists()
+    assert "Michael Porter" in (vault / "autores" / "porter.md").read_text()
+
+
+def test_commit_rejects_author_write_outside_autores_dir(tmp_path):
+    """author_writes must target paths under autores/; anything else
+    (apuntes/, conceptos/, repo root) is rejected before any disk op."""
+    vault, run = _setup_run(tmp_path)
+    plan = ConsolidationPlan(
+        author_writes=[
+            {"path": "apuntes/porter.md", "content": "X"},
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    with pytest.raises(ValueError, match="under autores"):
+        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+    assert not (vault / "apuntes" / "porter.md").exists()
+
+
+def test_commit_rejects_author_write_with_path_traversal(tmp_path):
+    """`autores/../escape.md` resolves outside autores — must be rejected."""
+    vault, run = _setup_run(tmp_path)
+    plan = ConsolidationPlan(
+        author_writes=[
+            {"path": "autores/../escape.md", "content": "X"},
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    with pytest.raises(ValueError, match="under autores|escapes vault"):
+        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+    assert not (tmp_path / "escape.md").exists()
+
+
+def test_commit_author_write_overwrites_existing_and_rollback_restores(tmp_path):
+    """Overwriting an existing autores/<slug>.md must snapshot first so
+    rollback restores the old content."""
+    vault, run = _setup_run(tmp_path)
+    (vault / "autores").mkdir(parents=True)
+    (vault / "autores" / "porter.md").write_text("OLD-BIO\n", encoding="utf-8")
+
+    plan = ConsolidationPlan(
+        author_writes=[
+            {"path": "autores/porter.md", "content": "NEW-BIO\n"},
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+    assert (vault / "autores" / "porter.md").read_text() == "NEW-BIO\n"
+
+    tx.rollback()
+    assert (vault / "autores" / "porter.md").read_text() == "OLD-BIO\n"
+
+
 def test_committer_nul_encoded_target_survives_json_roundtrip(tmp_path):
     """H7: rollback after reload from disk must still parse \\x00-encoded target."""
     vault = tmp_path / "vault"
