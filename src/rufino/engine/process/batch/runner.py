@@ -246,6 +246,7 @@ async def run_batch(
     dry_run: bool,
     skip_consolidator: bool = False,
     timeout_seconds: float = 300.0,
+    multimodal: bool = False,
 ) -> BatchRunResult:
     vault_root = vault_root.expanduser().resolve()
     adapter_dir = adapter_dir.expanduser().resolve()
@@ -258,6 +259,7 @@ async def run_batch(
                 workers=workers, batch_size=batch_size, dry_run=dry_run,
                 skip_consolidator=skip_consolidator,
                 timeout_seconds=timeout_seconds,
+                multimodal=multimodal,
             )
     except VaultLockedError as e:
         raise BatchError(str(e)) from e
@@ -273,6 +275,7 @@ async def _run_batch_locked(
     dry_run: bool,
     skip_consolidator: bool,
     timeout_seconds: float,
+    multimodal: bool = False,
 ) -> BatchRunResult:
     if not adapter_dir.is_dir():
         raise BatchError(f"adapter_dir {adapter_dir} is not a directory")
@@ -290,10 +293,13 @@ async def _run_batch_locked(
     log.info("run_id=%s adapter=%s vault=%s", run_id, adapter_dir.name, vault_root)
 
     # STAGE
-    staged = stage_corpus(source, run_dir)
+    staged = stage_corpus(source, run_dir, multimodal=multimodal)
     if not staged.groups:
         raise BatchError("corpus is empty after staging — nothing to process")
-    log.info("STAGE done groups=%d skipped=%d", len(staged.groups), len(staged.skipped))
+    log.info(
+        "STAGE done groups=%d skipped=%d multimodal=%s",
+        len(staged.groups), len(staged.skipped), multimodal,
+    )
 
     # PLAN
     effective_batch_size = batch_size if batch_size is not None else manifest.batch_size
