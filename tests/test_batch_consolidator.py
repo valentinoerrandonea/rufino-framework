@@ -44,6 +44,50 @@ def test_build_prompt_mentions_run_dir_and_slug():
     assert "consolidation-plan.json" in prompt
 
 
+def test_preamble_mentions_author_writes():
+    prompt = build_consolidator_system_prompt(
+        run_dir=Path("/run"), vault_slug="test",
+    )
+    assert "author_writes" in prompt
+    assert "autores/" in prompt
+
+
+def test_preamble_asks_for_concept_body_enrichment():
+    """Each concept body must call out Definicion / Contexto / Ejemplo /
+    Relacionado / Formulado-por sections so the consolidator stops
+    emitting empty concept stubs (Gap 2)."""
+    prompt = build_consolidator_system_prompt(
+        run_dir=Path("/run"), vault_slug="test",
+    )
+    for needle in ("Definici", "Contexto", "Ejemplo", "Relacionado", "Formulado"):
+        assert needle in prompt, f"preamble missing {needle!r}"
+
+
+def test_preamble_asks_consolidator_to_read_augmented_for_concept_bodies():
+    prompt = build_consolidator_system_prompt(
+        run_dir=Path("/run"), vault_slug="test",
+    )
+    assert "augmented" in prompt.lower()
+
+
+def test_preamble_sets_author_threshold_at_two():
+    """N>=2 explicit so the consolidator doesn't promote one-off lateral
+    mentions to dedicated author notes."""
+    prompt = build_consolidator_system_prompt(
+        run_dir=Path("/run"), vault_slug="test",
+    )
+    assert "al menos 2" in prompt or ">= 2" in prompt or "≥ 2" in prompt
+
+
+def test_preamble_forbids_placeholder_filler():
+    """No 'Expandi con tu propia explicacion' style stubs — better an
+    honest gap than fake content."""
+    prompt = build_consolidator_system_prompt(
+        run_dir=Path("/run"), vault_slug="test",
+    )
+    assert "placeholder" in prompt.lower() or "no escribas" in prompt.lower()
+
+
 def test_validate_plan_rejects_concept_write_missing_content():
     raw = {
         "moves": [],

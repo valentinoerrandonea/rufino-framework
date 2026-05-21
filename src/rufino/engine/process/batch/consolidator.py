@@ -27,22 +27,92 @@ Tu trabajo:
 
 1. Leé TODOS los archivos en `{run_dir}/workers/*/augmented/*.md` y
    `{run_dir}/workers/*/deltas/*.json`.
-2. Leé el estado actual del vault: `_meta/_tags.md`, `_meta/_index.md` y
-   `conceptos/`.
-3. Detectá conceptos duplicados emitidos independientemente por workers
-   distintos.
+2. Leé el estado actual del vault: `_meta/_tags.md`, `_meta/_index.md`,
+   `conceptos/` y `autores/`.
+3. Detectá conceptos y autores duplicados emitidos independientemente por
+   workers distintos.
 4. Producí UN solo archivo: `{run_dir}/consolidation-plan.json` con este
    schema (todos los keys son listas; pueden estar vacías):
 
 {{
   "moves": [{{"from": "<relative-to-run-dir>", "to": "<relative-to-vault>"}}, ...],
   "concept_writes": [{{"path": "conceptos/<slug>.md", "content": "...", "wins_over": [...]}}, ...],
+  "author_writes": [{{"path": "autores/<slug>.md", "content": "...", "wins_over": [...]}}, ...],
   "tag_index_updates": [{{"tag": "<tag>", "notes": ["<slug>", ...]}}, ...],
   "log_entries": ["<line>", ...]
 }}
 
-Tools allowed: Read, Glob, Write, mcp__ask-rufino-{slug}__*. Usá Write SOLO para
-el plan path.
+Conceptos — body enriquecido (REQUERIDO):
+  Para cada concepto promovido (que aparece en ≥ 2 deltas con
+  `concepts_promoted`), leé los augmented.md donde aparece y sintetizá el
+  cuerpo de la nota con esta estructura:
+
+  ```
+  ---
+  tipo: concepto
+  materias: [<lista de materias donde aparece>]
+  formulado_por: [[<slug-autor>]]
+  tags: [tipo/concepto, materia/<materia-principal>]
+  ---
+  # <Nombre del Concepto>
+
+  **Definición:** <1 frase precisa, derivada de los apuntes>
+  **Contexto:** <cuándo se aplica, qué problema resuelve>
+  **Ejemplo:** <si los apuntes lo dan, transcribilo>
+  **Relacionado con:** [[<concepto-vecino-1>]], [[<concepto-vecino-2>]]
+  **Formulado por:** [[<autor>]]
+
+  ## Apariciones
+  - [[<apunte-1>]]
+  - [[<apunte-2>]]
+  ```
+
+  Reglas duras:
+  - Solo agregá `formulado_por` en el frontmatter si la atribución es
+    unánime en los apuntes. Si es ambigua, omití la línea entera (tanto en
+    frontmatter como la sección "**Formulado por:**" del cuerpo).
+  - Si una sección no tiene material en los apuntes (ej. no aparece
+    Ejemplo), OMITÍ esa línea entera. Mejor un hueco honesto que texto
+    inventado. NO escribas placeholders tipo "_Expandi con tu propia
+    explicacion_" ni "TODO: completar".
+  - "**Relacionado con:**" tiene que apuntar a conceptos que aparezcan en
+    el mismo apunte o en otro apunte de la misma materia — no inventes
+    wikilinks sueltos.
+
+Autores — body con bio + obra + relevancia (REQUERIDO):
+  Para cada autor mencionado en ≥ 2 triples `referencia_autor` (al menos 2
+  apuntes distintos), escribí una nota `autores/<slug>.md` con esta
+  estructura:
+
+  ```
+  ---
+  tipo: persona
+  tags: [tipo/persona, persona/<slug>]
+  ---
+  # <Nombre completo del autor>
+
+  **Bio:** <1 párrafo: quién es, cuándo, qué disciplina>
+  **Obra principal:** <libro o paper canónico + año>
+  **Por qué importa:** <aporte específico para las materias del vault>
+
+  ## Conceptos asociados
+  - [[<concepto-1>]]
+  - [[<concepto-2>]]
+
+  ## Apariciones
+  - [[<apunte-1>]]
+  ```
+
+  Reglas duras:
+  - Threshold mínimo: al menos 2 apariciones en triples `referencia_autor`.
+    Si el autor aparece solo 1 vez o como mención lateral sin triple
+    unánime, NO emitas el author_write — dejá la mención como wikilink
+    roto, mejor un hueco honesto que una atribución inventada.
+  - Mismas reglas anti-placeholder que conceptos: si no tenés material
+    para una sección, omitíla, no la rellenes.
+
+5. Tools allowed: Read, Glob, Write, mcp__ask-rufino-{slug}__*. Usá Write
+   SOLO para el plan path.
 """
 
 
