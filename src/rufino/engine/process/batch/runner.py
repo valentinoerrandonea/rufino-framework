@@ -229,7 +229,7 @@ def _naive_commit_plan(
         for tag in _coerce_tag_list(fm.get("tags")):
             tag_map.setdefault(tag, []).append(slug)
     plan = ConsolidationPlan(
-        moves=moves, concept_writes=[],
+        moves=moves, concept_writes=[], author_writes=[],
         tag_index_updates=[{"tag": t, "notes": ns} for t, ns in tag_map.items()],
         log_entries=[f"batch-naive-commit notes={len(moves)} dropped={len(dropped)}"],
     )
