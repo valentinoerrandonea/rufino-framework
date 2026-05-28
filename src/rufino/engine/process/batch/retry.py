@@ -144,7 +144,7 @@ async def retry_failed(
     run_dir: Path,
     vault_slug: str,
     max_retries: int = 2,
-    timeout_seconds: float = 300.0,
+    timeout_seconds: float = 900.0,
 ) -> ValidationReport:
     staging_dir = run_dir / "workers" / worker_assignment.worker_id
     base_prompt = build_worker_system_prompt(

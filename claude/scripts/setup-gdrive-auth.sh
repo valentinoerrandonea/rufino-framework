@@ -23,7 +23,9 @@
 set -euo pipefail
 
 CREDENTIALS_FILE="$HOME/.claude/secrets/gdrive-credentials.json"
-KEYCHAIN_SERVICE="rufino-gdrive-refresh-token"
+KEYCHAIN_SERVICE_REFRESH="rufino-gdrive-refresh-token"
+KEYCHAIN_SERVICE_CLIENT_ID="rufino-gdrive-client-id"
+KEYCHAIN_SERVICE_CLIENT_SECRET="rufino-gdrive-client-secret"
 KEYCHAIN_ACCOUNT="val"
 SCOPES="https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/drive.readonly"
 
@@ -181,20 +183,19 @@ if [ -z "$REFRESH_TOKEN" ]; then
     exit 1
 fi
 
-# Guardar en Keychain. Si ya existe, sobreescribir (-U).
-security add-generic-password \
-    -s "$KEYCHAIN_SERVICE" \
-    -a "$KEYCHAIN_ACCOUNT" \
-    -w "$REFRESH_TOKEN" \
-    -U \
-    >/dev/null
+# Guardar las 3 keys en Keychain. Si ya existe, sobreescribir (-U).
+# rufino-ingest-gdrive.sh y rufino-ingest-youtube.sh necesitan las 3.
+security add-generic-password -s "$KEYCHAIN_SERVICE_REFRESH"       -a "$KEYCHAIN_ACCOUNT" -w "$REFRESH_TOKEN"  -U >/dev/null
+security add-generic-password -s "$KEYCHAIN_SERVICE_CLIENT_ID"     -a "$KEYCHAIN_ACCOUNT" -w "$CLIENT_ID"      -U >/dev/null
+security add-generic-password -s "$KEYCHAIN_SERVICE_CLIENT_SECRET" -a "$KEYCHAIN_ACCOUNT" -w "$CLIENT_SECRET"  -U >/dev/null
 
 echo
-echo "OK. refresh_token guardado en Keychain:"
-echo "  Service: $KEYCHAIN_SERVICE"
-echo "  Account: $KEYCHAIN_ACCOUNT"
+echo "OK. Credenciales guardadas en Keychain (account=$KEYCHAIN_ACCOUNT):"
+echo "  $KEYCHAIN_SERVICE_REFRESH"
+echo "  $KEYCHAIN_SERVICE_CLIENT_ID"
+echo "  $KEYCHAIN_SERVICE_CLIENT_SECRET"
 echo
 echo "Para verificar:"
-echo "  security find-generic-password -s $KEYCHAIN_SERVICE -a $KEYCHAIN_ACCOUNT -w"
+echo "  security find-generic-password -s $KEYCHAIN_SERVICE_REFRESH -a $KEYCHAIN_ACCOUNT -w"
 echo
-echo "Ya podes correr rufino-ingest-gdrive.sh o esperar al cron (dia 1, 05:00)."
+echo "Ya podes correr rufino-ingest-gdrive.sh / rufino-ingest-youtube.sh o esperar al cron."

@@ -262,47 +262,51 @@ def test_commit_writes_authors_to_autores_dir(tmp_path):
 
 
 def test_commit_rejects_author_write_outside_autores_dir(tmp_path):
-    """author_writes must target paths under autores/; anything else
-    (apuntes/, conceptos/, repo root) is rejected before any disk op."""
-    vault, run = _setup_run(tmp_path)
-    plan = ConsolidationPlan(
-        author_writes=[
-            {"path": "apuntes/porter.md", "content": "X"},
-        ],
-    )
-    tx = TransactionLog(run / "commit.tx.json")
+    """author_writes targeting paths outside autores/ (apuntes/, conceptos/,
+    repo root) are rejected at AuthorWrite construction time — before the
+    plan even reaches commit()."""
     with pytest.raises(ValueError, match="under autores"):
-        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
-    assert not (vault / "apuntes" / "porter.md").exists()
+        ConsolidationPlan(
+            author_writes=[
+                {"path": "apuntes/porter.md", "content": "X"},
+            ],
+        )
 
 
 def test_commit_rejects_author_write_with_path_traversal(tmp_path):
-    """`autores/../escape.md` resolves outside autores — must be rejected."""
-    vault, run = _setup_run(tmp_path)
-    plan = ConsolidationPlan(
-        author_writes=[
-            {"path": "autores/../escape.md", "content": "X"},
-        ],
-    )
-    tx = TransactionLog(run / "commit.tx.json")
-    with pytest.raises(ValueError, match="under autores|escapes vault"):
-        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+    """`autores/../escape.md` is now caught at AuthorWrite construction —
+    the `_reject_dot_segments` invariant kicks in before commit() ever
+    receives the plan."""
+    with pytest.raises(ValueError, match="must not contain '.' or '..'"):
+        ConsolidationPlan(
+            author_writes=[
+                {"path": "autores/../escape.md", "content": "X"},
+            ],
+        )
     assert not (tmp_path / "escape.md").exists()
 
 
-def test_commit_author_write_new_rollback_deletes_file(tmp_path):
+def test_commit_author_write_new_rollback_deletes_file(tmp_path, monkeypatch):
     """When a new author write succeeds but a later op fails, rollback
-    must delete the freshly-created file."""
+    must delete the freshly-created file. We inject the failure via a
+    monkeypatched ``append_to_log`` (runs AFTER author_writes in commit())
+    so the author file is on disk when the failure fires."""
     vault, run = _setup_run(tmp_path)
     plan = ConsolidationPlan(
         author_writes=[
             {"path": "autores/porter.md", "content": "BIO\n"},
-            # Second entry raises mid-loop AFTER porter.md was committed:
-            {"path": "apuntes/drucker.md", "content": "X"},
         ],
+        log_entries=["entry"],
+    )
+
+    def _boom(*args, **kwargs):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.committer.append_to_log", _boom,
     )
     tx = TransactionLog(run / "commit.tx.json")
-    with pytest.raises(ValueError, match="under autores"):
+    with pytest.raises(OSError, match="simulated"):
         commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
     assert not (vault / "autores" / "porter.md").exists()
 
@@ -348,6 +352,139 @@ def test_commit_author_write_overwrites_existing_and_rollback_restores(tmp_path)
 
     tx.rollback()
     assert (vault / "autores" / "porter.md").read_text() == "OLD-BIO\n"
+
+
+def test_commit_rejects_duplicate_destinations_across_concept_writes(tmp_path):
+    """Dedupe must cover concept_writes (and author_writes) not only moves —
+    otherwise two writes to the same path silently clobber each other."""
+    vault, run = _setup_run(tmp_path)
+    plan = ConsolidationPlan(
+        concept_writes=[
+            {"path": "conceptos/dfs.md", "content": "A"},
+            {"path": "conceptos/dfs.md", "content": "B"},
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    with pytest.raises(ValueError, match="duplicate destination"):
+        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+
+
+def test_commit_rejects_duplicate_destinations_across_author_writes(tmp_path):
+    vault, run = _setup_run(tmp_path)
+    plan = ConsolidationPlan(
+        author_writes=[
+            {"path": "autores/porter.md", "content": "A"},
+            {"path": "autores/porter.md", "content": "B"},
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    with pytest.raises(ValueError, match="duplicate destination"):
+        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+
+
+def test_commit_rejects_duplicate_destination_between_move_and_concept_write(tmp_path):
+    """move.to and concept_write.path landing on the same vault path must be
+    caught by the dedupe gate."""
+    vault, run = _setup_run(tmp_path)
+    plan = ConsolidationPlan(
+        moves=[{"from": "workers/w0001/augmented/n1.md", "to": "conceptos/dfs.md"}],
+        concept_writes=[{"path": "conceptos/dfs.md", "content": "Y"}],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+    with pytest.raises(ValueError, match="duplicate destination"):
+        commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+
+
+def test_commit_rollback_failure_chains_original_exception(
+    tmp_path, monkeypatch, caplog
+):
+    """When rollback fails after a commit-time error, the rollback failure
+    is the top-level exception (the more urgent one — vault may be in an
+    inconsistent state) and the original commit error is chained via
+    ``__cause__`` so the traceback shows BOTH. Both are also logged."""
+    import logging as _logging
+
+    vault, run = _setup_run(tmp_path)
+    plan = ConsolidationPlan(
+        moves=[
+            {"from": "workers/w0001/augmented/n1.md", "to": "apuntes/n1.md"},
+            {"from": "workers/w0001/augmented/missing.md", "to": "apuntes/x.md"},
+        ],
+    )
+    tx = TransactionLog(run / "commit.tx.json")
+
+    def _broken_rollback() -> None:
+        raise RuntimeError("rollback exploded")
+
+    monkeypatch.setattr(tx, "rollback", _broken_rollback)
+    with caplog.at_level(_logging.ERROR, logger="rufino.engine.process.batch.committer"):
+        with pytest.raises(RuntimeError, match="rollback exploded") as exc_info:
+            commit(plan=plan, vault_root=vault, run_dir=run, tx_log=tx)
+    assert isinstance(exc_info.value.__cause__, FileNotFoundError)
+    assert "missing source" in str(exc_info.value.__cause__)
+    assert any("rollback FAILED" in r.getMessage() for r in caplog.records)
+
+
+def test_undo_move_raises_on_malformed_target():
+    """Silent no-op on a malformed tx-log entry would break the all-or-nothing
+    guarantee; the rollback handler must raise instead."""
+    from rufino.engine.process.batch.committer import _undo_move
+    with pytest.raises(ValueError, match="malformed"):
+        _undo_move("no-nul-here")
+
+
+def test_undo_move_overwrite_raises_on_malformed_target():
+    from rufino.engine.process.batch.committer import _undo_move_overwrite
+    with pytest.raises(ValueError, match="malformed"):
+        _undo_move_overwrite("only\x00two")
+
+
+def test_undo_snapshot_restore_raises_on_malformed_target():
+    from rufino.engine.process.batch.committer import _undo_snapshot_restore
+    with pytest.raises(ValueError, match="malformed"):
+        _undo_snapshot_restore("no-nul")
+
+
+def test_undo_log_append_raises_on_malformed_target():
+    from rufino.engine.process.batch.committer import _undo_log_append
+    with pytest.raises(ValueError, match="malformed"):
+        _undo_log_append("only\x00two")
+
+
+def test_undo_log_append_deletes_log_when_did_not_pre_exist(tmp_path):
+    """The 'existed=0' branch: rollback must delete a log file that the
+    commit created from scratch, not leave a stale empty file behind."""
+    from rufino.engine.process.batch.committer import _undo_log_append
+    live = tmp_path / "_processing-log.md"
+    live.write_text("created during commit\n", encoding="utf-8")
+    snap = tmp_path / "log.snap"
+    snap.write_text("", encoding="utf-8")
+    _undo_log_append(f"{live}\x00{snap}\x000")
+    assert not live.exists()
+
+
+def test_undo_log_append_restores_log_when_pre_existed(tmp_path):
+    """The 'existed=1' branch: restore from snapshot."""
+    from rufino.engine.process.batch.committer import _undo_log_append
+    live = tmp_path / "_processing-log.md"
+    live.write_text("NEW", encoding="utf-8")
+    snap = tmp_path / "log.snap"
+    snap.write_text("OLD", encoding="utf-8")
+    _undo_log_append(f"{live}\x00{snap}\x001")
+    assert live.read_text(encoding="utf-8") == "OLD"
+
+
+def test_undo_log_append_raises_on_corrupt_existed_token(tmp_path):
+    """`existed` not in (0, 1) is a malformed entry — must raise, not no-op.
+    Silent no-op would leave the log file with whatever the failed commit
+    appended, breaking the all-or-nothing rollback guarantee."""
+    from rufino.engine.process.batch.committer import _undo_log_append
+    live = tmp_path / "_processing-log.md"
+    snap = tmp_path / "log.snap"
+    with pytest.raises(ValueError, match="'existed' token"):
+        _undo_log_append(f"{live}\x00{snap}\x00True")
+    with pytest.raises(ValueError, match="'existed' token"):
+        _undo_log_append(f"{live}\x00{snap}\x002")
 
 
 def test_committer_nul_encoded_target_survives_json_roundtrip(tmp_path):

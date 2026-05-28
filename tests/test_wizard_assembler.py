@@ -67,3 +67,46 @@ def test_prompt_instructs_to_ask_about_hooks():
     # The user-facing question and the checklist item both anchor the behavior.
     assert "captura" in prompt.lower() or "capturar" in prompt.lower()
     assert "opt-in" in prompt.lower()
+
+
+def test_prompt_documents_processing_entry_required_fields():
+    """Regression guard for the note_type=null bug: the wizard must be told
+    the full shape of a processing[] entry, not just prompt_instructions.
+
+    The WizardSpec schema requires note_type, applies_when, llm,
+    output_schema, destination_path and batch_size on every processing
+    entry. When the prompt omitted them, the wizard emitted `note_type: null`
+    and `rufino materialize` failed validation. Keep the prompt and the
+    schema in lockstep."""
+    prompt = build_system_prompt()
+    for field in (
+        "note_type",
+        "applies_when",
+        "llm",
+        "output_schema",
+        "destination_path",
+        "batch_size",
+    ):
+        assert field in prompt, f"processing[] field not documented: {field}"
+
+
+def test_prompt_documents_top_level_spec_shape():
+    """Second lockstep guard (surfaced by the v0.3.1 e2e): the prompt must
+    pin the top-level spec shape, especially that `entities` is a list of
+    plain strings (not {name, description} objects) and `vocabulary` is an
+    entity->path mapping. When these were undocumented the wizard emitted
+    entity objects and `rufino materialize` failed validation."""
+    prompt = build_system_prompt()
+    assert "Shape top-level de la spec" in prompt
+    # entities-as-strings clarification (the actual failure mode)
+    assert "entities" in prompt
+    assert "NO objetos" in prompt or "no objetos" in prompt.lower()
+    assert "vocabulary" in prompt
+
+
+def test_prompt_clarifies_adapter_is_a_path():
+    """The post-materialize process-batch guidance must show that --adapter
+    is a path under ~/.rufino/adapters/process/<slug>/<name>, not a bare
+    adapter name (which fails click's exists=True path check)."""
+    prompt = build_system_prompt()
+    assert ".rufino/adapters/process" in prompt

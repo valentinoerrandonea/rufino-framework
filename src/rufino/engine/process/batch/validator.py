@@ -202,17 +202,9 @@ def check_compression_ratio(
     augmented: Path,
     floor: float | None,
 ) -> CompressionCheck | None:
-    """Compute the word-count ratio between augmented and original body.
-
-    When ``floor`` is set and the ratio falls below it, log a warning (the
-    check is advisory: notes are not marked as failed in v0.3). Returns
-    ``None`` when ``floor`` is ``None`` (feature disabled) or when
-    ``original`` is a binary format (``.pdf``) where word-count comparison
-    is meaningless — multimodal mode (``--multimodal``) stages DOCX/PPTX as
-    PDF and we don't have a faithful denominator for those.
-    """
     if floor is None:
         return None
+    # PDFs have no faithful word-count denominator (binary format).
     if original.suffix.lower() == ".pdf":
         return None
     orig_words = _count_body_words(original)
@@ -232,7 +224,6 @@ def check_compression_ratio(
 
 def _count_body_words(path: Path) -> int:
     text = path.read_text(encoding="utf-8", errors="replace")
-    # Strip YAML frontmatter so the count reflects body only.
     if text.startswith("---\n"):
         end = text.find("\n---\n", 4)
         if end != -1:

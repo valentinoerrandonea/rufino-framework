@@ -274,3 +274,105 @@ def test_qa_resume_does_not_leak_fake_claude_notes_env(tmp_path, monkeypatch):
     asyncio.run(resume_pending_qa(vault_root=vault, question_file=qfile))
 
     assert "FAKE_CLAUDE_NOTES" not in captured["env"]
+
+
+def test_qa_resume_writes_error_file_on_file_not_found(tmp_path, monkeypatch):
+    """`FileNotFoundError` is the second member of the structural tuple —
+    sibling test to ValueError so a narrow `except ValueError:` regression
+    is caught."""
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
+    vault, run_dir, qfile = _seed_pending_qa(tmp_path)
+
+    def _boom(**kwargs):
+        raise FileNotFoundError("missing source: x")
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.qa_resume.commit", _boom,
+    )
+    from rufino.engine.process.batch.qa_resume import resume_pending_qa
+    asyncio.run(resume_pending_qa(vault_root=vault, question_file=qfile))
+    err_file = qfile.with_suffix(qfile.suffix + ".error")
+    assert err_file.exists()
+    assert "FileNotFoundError" in err_file.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "rollback_err_factory",
+    [
+        lambda: RuntimeError("rollback exploded"),
+        lambda: ValueError("batch_undo_move: malformed target"),
+        lambda: FileNotFoundError("snapshot missing"),
+    ],
+    ids=["runtime", "value", "file_not_found"],
+)
+def test_qa_resume_treats_rollback_failure_as_structural(
+    tmp_path, monkeypatch, rollback_err_factory,
+):
+    """When commit() raises with a chained __cause__ (rollback failed after
+    commit error), qa_resume must write ROLLBACK FAILED — regardless of the
+    rollback_err's type. Parametrized to catch the wave-5 regression where
+    a ValueError-typed rollback_err was misclassified as plain structural."""
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
+    vault, run_dir, qfile = _seed_pending_qa(tmp_path)
+
+    def _commit_with_chained_rollback_failure(**kwargs):
+        original = FileNotFoundError("missing source: x")
+        raise rollback_err_factory() from original
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.qa_resume.commit",
+        _commit_with_chained_rollback_failure,
+    )
+    from rufino.engine.process.batch.qa_resume import resume_pending_qa
+    ok = asyncio.run(
+        resume_pending_qa(vault_root=vault, question_file=qfile)
+    )
+    assert ok is False
+    err_file = qfile.with_suffix(qfile.suffix + ".error")
+    assert err_file.exists()
+    text = err_file.read_text(encoding="utf-8")
+    assert "ROLLBACK FAILED" in text
+    assert "missing source" in text
+
+
+def test_qa_resume_cleans_up_stale_error_file_on_success(tmp_path, monkeypatch):
+    """If a previous attempt wrote a `.error` sidecar and the user/system
+    later resolves the cause, the next successful resume must remove the
+    stale `.error` — otherwise `questions/` accumulates dead files that
+    are indistinguishable from live problems."""
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
+    vault, run_dir, qfile = _seed_pending_qa(tmp_path)
+    err_file = qfile.with_suffix(qfile.suffix + ".error")
+    err_file.write_text("stale error from previous attempt\n", encoding="utf-8")
+
+    from rufino.engine.process.batch.qa_resume import resume_pending_qa
+    ok = asyncio.run(
+        resume_pending_qa(vault_root=vault, question_file=qfile)
+    )
+    assert ok is True
+    assert not err_file.exists()
+
+
+def test_qa_resume_writes_error_file_on_structural_failure(tmp_path, monkeypatch):
+    """If commit raises a structural error (path escape, missing source) the
+    question stays in questions/ AND a sibling .error file records the cause
+    so a human inspecting the directory can see why qa-poll keeps skipping
+    it instead of having to grep through launchd logs."""
+    monkeypatch.setenv("FAKE_CLAUDE_MODE", "augment")
+    vault, run_dir, qfile = _seed_pending_qa(tmp_path)
+
+    def _boom(**kwargs):
+        raise ValueError("plan path escapes vault")
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.qa_resume.commit", _boom,
+    )
+    from rufino.engine.process.batch.qa_resume import resume_pending_qa
+    ok = asyncio.run(
+        resume_pending_qa(vault_root=vault, question_file=qfile)
+    )
+    assert ok is False
+    err_file = qfile.with_suffix(qfile.suffix + ".error")
+    assert err_file.exists()
+    assert "ValueError" in err_file.read_text(encoding="utf-8")
+    assert "plan path escapes vault" in err_file.read_text(encoding="utf-8")

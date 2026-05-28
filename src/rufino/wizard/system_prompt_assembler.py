@@ -28,6 +28,23 @@ Hooks de código: transform.py opcional (sandbox).
 Helpers built-in: validate_frontmatter, extract_triples, register_persons,
 promote_concepts, query_vault, ask_user.
 
+### Shape top-level de la spec (WizardSpec)
+
+```yaml
+vertical_name: <slug>            # REQUERIDO — lowercase + guiones, arranca con letra, <=64 chars (ej. "my-telus")
+patterns: [<pattern>, ...]       # REQUERIDO — lista de strings, SOLO de los patterns conocidos (sección 4)
+entities: [<slug>, ...]          # REQUERIDO — lista de STRINGS simples (NO objetos): cada uno lowercase + dígitos + _ + -, arranca con letra (ej. ["persona", "proyecto"])
+sources: [ { ... }, ... ]        # REQUERIDO — lista de Ingest sources (shape abajo); puede ser [] si no hay ingest
+processing: [ { ... }, ... ]     # REQUERIDO — lista de Process entries (shape abajo); puede ser [] si no hay processing
+outputs: [ { ... }, ... ]        # REQUERIDO — lista de Output entries; puede ser [] si no hay outputs
+vocabulary: { <entity>: "<path-relativo>" }   # REQUERIDO — mapping entity -> carpeta del vault; las keys DEBEN estar declaradas en entities; paths relativos (sin ".." ni absolutos), ej. {"persona": "personas/"}
+```
+
+`entities` es una lista de **strings** simples, NO de objetos `{name,
+description}` — si emitís objetos, `rufino materialize` falla con un error de
+validación de spec. Toda key de `vocabulary` tiene que estar declarada en
+`entities`.
+
 ### Shape de cada Ingest source en la spec
 
 ```yaml
@@ -73,6 +90,33 @@ fidelidad al volumen importa. Ejemplo: ``0.9`` = el body procesado debe
 tener al menos 90% del wordcount del original; el engine inyecta una
 instrucción al worker y loguea warnings si el ratio cae por debajo. Sin
 ``compression_floor`` no hay restricción (default v0.2.x).
+
+### Shape de cada Process (processing) entry en la spec
+
+```yaml
+adapter_name: <kebab-case>             # REQUERIDO — nombre del adapter de Process
+note_type: <slug>                      # REQUERIDO — tipo de nota que produce (ej. "1on1", "lectura", "decision"); se escribe al manifest
+applies_when: { campo: valor, ... }    # REQUERIDO — mapping; condiciones que matchean qué notas procesa este adapter ({} = aplica a todo)
+llm: <model-id>                        # REQUERIDO — modelo del worker (ej. "claude-sonnet-4-6")
+output_schema: { campo: tipo, ... }    # REQUERIDO — mapping; frontmatter que el worker debe llenar (campo -> tipo)
+destination_path: "carpeta/{slug}.md"  # REQUERIDO — template del path destino; las {vars} se resuelven contra el frontmatter
+batch_size: <int>                      # REQUERIDO — entero positivo; notas por worker
+prompt_instructions: |                 # REQUERIDO — body operativo del prompt del worker (no placeholder), con al menos un ejemplo del vertical
+  ...
+# === opcionales ===
+triple_vocabulary: [predicado, ...]    # lista de strings; predicados de triples permitidos
+tag_axes: [ { ... }, ... ]             # lista de mappings; ejes de tags
+qa_triggers: [ { ... }, ... ]          # lista de mappings; condiciones que disparan preguntas al user
+context_injectors: [ { ... }, ... ]    # lista de mappings
+compression_floor: 0.0..1.0            # float opcional (ver arriba)
+transform_hook_body: |                 # opcional — string con el body de transform.py
+  ...
+```
+
+TODOS los campos marcados **REQUERIDO** deben estar presentes y no-nulos en
+cada entry de ``processing[]``. Omitirlos o dejarlos en ``null`` hace fallar
+``rufino materialize`` con un error de validación de spec (ej. *"'note_type'
+must be a non-empty string, got NoneType"*).
 
 ## 4. Patterns iniciales
 
@@ -120,8 +164,12 @@ Después de materialize:
 1. Si el user pidió embeddings (regla operativa 9), corré
    `rufino detect-embeddings` y, si pasa, `rufino enable-embeddings --vault <vault>`.
 2. Si el user dijo que tenía corpus inicial (regla operativa 10),
-   invocá `rufino process-batch <source_dir> --vault <vault> --adapter <process_adapter>`
-   y mostrale el resumen.
+   invocá `rufino process-batch <source_dir> --vault <vault> --adapter <adapter_path>`
+   y mostrale el resumen. `--adapter` espera un **path** al directorio del
+   adapter, NO el nombre pelado: el materializer lo escribe en
+   `~/.rufino/adapters/process/<vault-slug>/<adapter_name>`. Pasá ese path
+   completo (un nombre suelto como `mi-adapter` falla con "Directory ... does
+   not exist").
 3. Para cada `sources[]` con `schedule`, ofrecé `rufino install-ingest`
    (regla operativa 12). Si el user pospone, ok — el adapter queda escrito.
 

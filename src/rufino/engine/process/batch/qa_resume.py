@@ -19,7 +19,7 @@ from pathlib import Path
 import yaml
 
 from rufino.engine.process.batch.committer import commit
-from rufino.engine.process.batch.consolidator import ConsolidationPlan
+from rufino.engine.process.batch.consolidator import ConsolidationPlan, Move
 from rufino.engine.process.batch.dispatcher import (
     SESSION_EXPIRED_EXIT_CODE,
     build_argv,
@@ -279,11 +279,8 @@ async def _resume_pending_qa_locked(
 
     rel_from = aug.relative_to(run_dir)
     plan = ConsolidationPlan(
-        moves=[{"from": str(rel_from), "to": dest_rel}],
-        concept_writes=[],
-        author_writes=[],
-        tag_index_updates=[],
-        log_entries=[f"batch-qa-resume run={run_id} slug={slug}"],
+        moves=(Move(from_=str(rel_from), to=dest_rel),),
+        log_entries=(f"batch-qa-resume run={run_id} slug={slug}",),
     )
     # Unique tx-log path per attempt so two qa-poll runs (manual + launchd
     # tick, retry after a hung worker, etc.) don't clobber each other's
@@ -292,19 +289,66 @@ async def _resume_pending_qa_locked(
     tx = TransactionLog(run_dir / f"qa-resume-{slug}.{tx_suffix}.tx.json")
     try:
         commit(plan=plan, vault_root=vault_root, run_dir=run_dir, tx_log=tx)
-    except WorkerSessionExpiredError:
-        # Surface auth failures — qa-poll's caller (CLI) decides what to do.
-        raise
-    except Exception as e:  # commit already rolled back internally
+    except Exception as e:
+        err_file = question_file.with_suffix(question_file.suffix + ".error")
+        # __cause__ is set only by committer's ``raise rollback_err from
+        # original`` — rollback itself failed and the vault may be in an
+        # inconsistent state. Check FIRST: when an undo handler raises
+        # ValueError (e.g. malformed tx-log target), e itself is a
+        # ValueError; without this order, it would be misclassified as
+        # plain "structural" via the type check below.
+        if e.__cause__ is not None:
+            cause = e.__cause__
+            msg = (
+                f"ROLLBACK FAILED — vault may be inconsistent. "
+                f"rollback_err={type(e).__name__}: {e}; "
+                f"original={type(cause).__name__}: {cause}\n"
+            )
+            try:
+                err_file.write_text(msg, encoding="utf-8")
+            except OSError as write_err:
+                log.error(
+                    "qa-resume could not write .error sidecar for %s: %s",
+                    slug, write_err,
+                )
+            log.error(
+                "qa-resume commit AND rollback failed for %s (run=%s)",
+                slug, run_id,
+            )
+            return False
+        if isinstance(e, (ValueError, FileNotFoundError)):
+            # Non-transient: plan-level or filesystem-shape errors will
+            # keep failing on every tick.
+            log.warning(
+                "qa-resume commit failed (structural) for %s (run=%s): %s",
+                slug, run_id, e,
+            )
+            try:
+                err_file.write_text(
+                    f"{type(e).__name__}: {e}\n", encoding="utf-8",
+                )
+            except OSError as write_err:
+                log.error(
+                    "qa-resume could not write .error sidecar for %s: %s",
+                    slug, write_err,
+                )
+            return False
         log.warning(
-            "qa-resume commit failed for %s (run=%s): %s",
+            "qa-resume commit failed (transient) for %s (run=%s): %s",
             slug, run_id, e,
         )
         return False
 
     # Archive the question ONLY after the commit succeeded — if commit
     # rolls back, the question stays in ``questions/`` so qa-poll can
-    # try again next tick.
+    # try again next tick. Unlink the stale .error sidecar FIRST so a
+    # process kill between the two ops can't orphan a .error file.
+    err_sibling = question_file.with_suffix(question_file.suffix + ".error")
+    if err_sibling.exists():
+        try:
+            err_sibling.unlink()
+        except OSError as e:
+            log.warning("could not remove stale error file %s: %s", err_sibling, e)
     archived = vault_root / "questions" / "answered"
     archived.mkdir(parents=True, exist_ok=True)
     shutil.move(str(question_file), archived / question_file.name)

@@ -79,25 +79,26 @@ def _stage_convertible_as_pdf(
     target_dir: Path,
     skipped: list[Path],
 ) -> Path | None:
-    """Render a .docx/.pptx to a sibling .pdf via soffice (multimodal mode).
-
-    Failures (missing soffice, conversion error) are logged + the file is
-    added to ``skipped`` rather than aborting the whole batch — one bad
-    document shouldn't kill 100 others.
-    """
     target = target_dir / (src_file.stem + ".pdf")
     if target.exists():
         raise StagingError(f"staging collision at {target}")
     target_dir.mkdir(parents=True, exist_ok=True)
     try:
         converted = convert_to_pdf(src_file, out_dir=target_dir)
-    except (ConversionError, SofficeNotFoundError) as e:
+    except SofficeNotFoundError as e:
+        # soffice disappearing mid-batch means EVERY subsequent doc fails
+        # the same way; aborting now matches the CLI prereq check's
+        # fail-fast contract.
+        raise StagingError(
+            f"soffice not available mid-batch — aborting multimodal run. "
+            f"Reinstall LibreOffice or rerun without --multimodal. ({e})"
+        ) from e
+    except ConversionError as e:
+        # Per-file failure: one bad doc shouldn't abort the batch.
         log.warning("skipping %s in multimodal mode: %s", src_file, e)
         skipped.append(src_file)
         return None
-    # convert_to_pdf names the output <stem>.pdf in out_dir, so it should
-    # equal ``target``; rename defensively if a future soffice version
-    # changes that contract.
+    # Defensive rename in case a future soffice changes the output naming.
     if converted != target:
         shutil.move(str(converted), str(target))
     return target
@@ -108,7 +109,6 @@ def _stage_convertible_as_md(
     target_dir: Path,
     skipped: list[Path],
 ) -> Path | None:
-    """Flatten a .docx/.pptx to .md via mammoth/python-pptx (default mode)."""
     target = target_dir / (src_file.stem + ".md")
     if target.exists():
         raise StagingError(f"staging collision at {target}")

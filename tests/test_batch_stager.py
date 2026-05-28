@@ -268,14 +268,110 @@ def test_stage_docx_to_md_when_not_multimodal_default(
     assert files[0].suffix == ".md"
 
 
-def test_stage_multimodal_skips_docx_when_soffice_missing(
-    tmp_path, batch_fixtures_dir, monkeypatch, caplog
+@_REQUIRES_SOFFICE
+def test_stage_multimodal_handles_mixed_pdf_docx_md_corpus(
+    tmp_path, batch_fixtures_dir
 ):
-    """If soffice disappears mid-batch, the file is skipped (logged), not
-    raised — keeps the rest of the corpus moving."""
+    """Primary user scenario for --multimodal: course folder mixes
+    handwritten-scan PDFs, instructor DOCX slides, and markdown notes.
+    Each must land with the correct extension."""
+    source = tmp_path / "source"
+    (source / "materia1").mkdir(parents=True)
+    # PDF passthrough — write a minimal valid PDF header.
+    (source / "materia1" / "scan.pdf").write_bytes(b"%PDF-1.4\n%fake\n")
+    shutil.copy(batch_fixtures_dir / "hello.docx", source / "materia1" / "slides.docx")
+    (source / "materia1" / "notes.md").write_text("# notes\n")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    staged = stage_corpus(source, run_dir, multimodal=True)
+
+    files = sorted(staged.groups["materia1"], key=lambda p: p.name)
+    names = [f.name for f in files]
+    assert names == ["notes.md", "scan.pdf", "slides.pdf"]
+    assert (run_dir / "inbox" / "materia1" / "scan.pdf").read_bytes() == b"%PDF-1.4\n%fake\n"
+    assert (run_dir / "inbox" / "materia1" / "slides.pdf").read_bytes()[:5] == b"%PDF-"
+
+
+def test_stage_multimodal_rejects_pdf_collision(
+    tmp_path, batch_fixtures_dir, monkeypatch
+):
+    """If a corpus has both `apunte.docx` and a pre-existing `apunte.pdf` in
+    the staged inbox path (collision after extension normalization), stager
+    must raise — silently overwriting one with the other would lose data."""
+    source = tmp_path / "source"
+    (source / "materia1").mkdir(parents=True)
+    shutil.copy(batch_fixtures_dir / "hello.docx", source / "materia1" / "apunte.docx")
+    (source / "materia1" / "apunte.pdf").write_bytes(b"%PDF-1.4\nfake\n")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    with pytest.raises(StagingError, match="staging collision"):
+        stage_corpus(source, run_dir, multimodal=True)
+
+
+def test_stage_multimodal_defensive_rename_when_soffice_output_path_differs(
+    tmp_path, batch_fixtures_dir, monkeypatch
+):
+    """If a future soffice version emits the PDF under a different filename
+    than `<stem>.pdf`, the stager renames it into place. This guards the
+    multimodal staging contract from upstream behavior changes."""
+    source = tmp_path / "source"
+    (source / "materia1").mkdir(parents=True)
+    shutil.copy(batch_fixtures_dir / "hello.docx", source / "materia1" / "apunte.docx")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    def _fake_convert(path, *, out_dir, timeout=120.0):
+        # Soffice "decides" to name the output differently.
+        weird = out_dir / "weird_name.pdf"
+        weird.write_bytes(b"%PDF-1.4\n%defensive\n")
+        return weird
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.stager.convert_to_pdf",
+        _fake_convert,
+    )
+
+    staged = stage_corpus(source, run_dir, multimodal=True)
+    files = staged.groups["materia1"]
+    assert [f.name for f in files] == ["apunte.pdf"]
+    assert files[0].read_bytes() == b"%PDF-1.4\n%defensive\n"
+
+
+def test_stage_multimodal_aborts_when_soffice_missing_mid_batch(
+    tmp_path, batch_fixtures_dir, monkeypatch
+):
+    """If soffice disappears mid-batch (CLI prereq check passed but
+    binary unreachable when the stager calls it), the run aborts
+    loudly instead of silently dropping every DOCX/PPTX."""
     monkeypatch.setattr(
         "rufino.engine.process.batch.converters._which_soffice",
         lambda: None,
+    )
+    source = tmp_path / "source"
+    (source / "materia1").mkdir(parents=True)
+    shutil.copy(batch_fixtures_dir / "hello.docx", source / "materia1" / "apunte.docx")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    with pytest.raises(StagingError, match="soffice not available mid-batch"):
+        stage_corpus(source, run_dir, multimodal=True)
+
+
+def test_stage_multimodal_skips_docx_on_conversion_error(
+    tmp_path, batch_fixtures_dir, monkeypatch, caplog
+):
+    """A per-file ConversionError (e.g. corrupt DOCX) is skipped, not
+    raised — one bad doc shouldn't abort the corpus."""
+    from rufino.engine.process.batch.errors import ConversionError
+
+    def _fake_convert(path, *, out_dir, timeout=120.0):
+        raise ConversionError(f"corrupt input: {path}")
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.stager.convert_to_pdf",
+        _fake_convert,
     )
     source = tmp_path / "source"
     (source / "materia1").mkdir(parents=True)
@@ -290,4 +386,4 @@ def test_stage_multimodal_skips_docx_when_soffice_missing(
 
     files = staged.groups["materia1"]
     assert [f.name for f in files] == ["other.md"]
-    assert any("soffice" in r.getMessage().lower() for r in caplog.records)
+    assert any("corrupt input" in r.getMessage().lower() for r in caplog.records)

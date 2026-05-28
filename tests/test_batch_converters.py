@@ -29,9 +29,9 @@ def test_converters_module_importable_without_mammoth(monkeypatch):
     docx call should raise a clear error."""
     import sys
     monkeypatch.setitem(sys.modules, "mammoth", None)
-    # Reimport to simulate fresh import
-    if "rufino.engine.process.batch.converters" in sys.modules:
-        del sys.modules["rufino.engine.process.batch.converters"]
+    monkeypatch.delitem(
+        sys.modules, "rufino.engine.process.batch.converters", raising=False,
+    )
     from rufino.engine.process.batch import converters  # must not raise
     with pytest.raises(RuntimeError, match="mammoth is required"):
         converters.convert_to_markdown(Path("x.docx"))
@@ -42,8 +42,9 @@ def test_converters_module_importable_without_pptx(monkeypatch):
     the pptx call should raise a clear error."""
     import sys
     monkeypatch.setitem(sys.modules, "pptx", None)
-    if "rufino.engine.process.batch.converters" in sys.modules:
-        del sys.modules["rufino.engine.process.batch.converters"]
+    monkeypatch.delitem(
+        sys.modules, "rufino.engine.process.batch.converters", raising=False,
+    )
     from rufino.engine.process.batch import converters  # must not raise
     with pytest.raises(RuntimeError, match="python-pptx is required"):
         converters.convert_to_markdown(Path("x.pptx"))
@@ -218,3 +219,194 @@ def test_convert_to_pdf_raises_when_soffice_missing(
     src.write_bytes(b"dummy")
     with pytest.raises(SofficeNotFoundError, match="soffice not found"):
         convert_to_pdf(src, out_dir=tmp_path)
+
+
+def _fake_completed(returncode: int, stderr: bytes = b""):
+    return SimpleNamespace(returncode=returncode, stderr=stderr, stdout=b"")
+
+
+def test_convert_to_pdf_raises_on_timeout(tmp_path, monkeypatch):
+    import subprocess
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: "/fake/soffice",
+    )
+
+    def _raise_timeout(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0], timeout=1.0)
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters.subprocess.run", _raise_timeout,
+    )
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    with pytest.raises(ConversionError, match="timed out"):
+        convert_to_pdf(src, out_dir=tmp_path, timeout=1.0)
+
+
+def test_convert_to_pdf_raises_on_nonzero_exit(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: "/fake/soffice",
+    )
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters.subprocess.run",
+        lambda *a, **kw: _fake_completed(1, b"boom"),
+    )
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    with pytest.raises(ConversionError, match="exit=1"):
+        convert_to_pdf(src, out_dir=tmp_path)
+
+
+def test_convert_to_pdf_raises_when_output_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: "/fake/soffice",
+    )
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters.subprocess.run",
+        lambda *a, **kw: _fake_completed(0),
+    )
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    with pytest.raises(ConversionError, match="did not produce"):
+        convert_to_pdf(src, out_dir=tmp_path)
+
+
+def test_convert_to_pdf_raises_on_empty_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: "/fake/soffice",
+    )
+
+    def _make_empty(*a, **kw):
+        out = tmp_path / "doc.pdf"
+        out.write_bytes(b"")
+        return _fake_completed(0)
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters.subprocess.run", _make_empty,
+    )
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    with pytest.raises(ConversionError, match="empty PDF"):
+        convert_to_pdf(src, out_dir=tmp_path)
+    assert not (tmp_path / "doc.pdf").exists()  # partial cleanup
+
+
+def test_convert_to_pdf_raises_on_non_pdf_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: "/fake/soffice",
+    )
+
+    def _make_garbage(*a, **kw):
+        out = tmp_path / "doc.pdf"
+        out.write_bytes(b"not a pdf at all")
+        return _fake_completed(0)
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters.subprocess.run", _make_garbage,
+    )
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    with pytest.raises(ConversionError, match="non-PDF output"):
+        convert_to_pdf(src, out_dir=tmp_path)
+    assert not (tmp_path / "doc.pdf").exists()
+
+
+def test_convert_to_pdf_warns_on_rc0_stderr(tmp_path, monkeypatch, caplog):
+    """soffice rc=0 with non-empty stderr (font sub, dropped image) is
+    surfaced as a warning, not silently swallowed — multimodal users
+    opted in for fidelity, so they need the diagnostic."""
+    import logging as _logging
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: "/fake/soffice",
+    )
+
+    def _make_real_pdf(*a, **kw):
+        out = tmp_path / "doc.pdf"
+        out.write_bytes(b"%PDF-1.4\nbody\n%%EOF")
+        return _fake_completed(0, b"warning: substituted font Helvetica")
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters.subprocess.run", _make_real_pdf,
+    )
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    with caplog.at_level(
+        _logging.WARNING, logger="rufino.engine.process.batch.converters",
+    ):
+        result = convert_to_pdf(src, out_dir=tmp_path)
+    assert result.exists()
+    assert any("substituted font" in r.getMessage() for r in caplog.records)
+
+
+def test_cleanup_partial_swallows_oserror_with_warning(
+    tmp_path, monkeypatch, caplog,
+):
+    """If cleanup itself can't unlink the partial PDF (read-only dir, etc.)
+    the outer ConversionError still propagates and the cleanup failure is
+    logged — not silently dropped."""
+    import logging as _logging
+    from pathlib import Path as _Path
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: "/fake/soffice",
+    )
+
+    def _make_empty(*a, **kw):
+        out = tmp_path / "doc.pdf"
+        out.write_bytes(b"")
+        return _fake_completed(0)
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters.subprocess.run", _make_empty,
+    )
+
+    real_unlink = _Path.unlink
+
+    def _unlink_fails(self, *args, **kwargs):
+        if self.name == "doc.pdf":
+            raise OSError("read-only filesystem")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(_Path, "unlink", _unlink_fails)
+
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    with caplog.at_level(
+        _logging.WARNING, logger="rufino.engine.process.batch.converters",
+    ):
+        with pytest.raises(ConversionError, match="empty PDF"):
+            convert_to_pdf(src, out_dir=tmp_path)
+    assert any(
+        "could not remove partial PDF" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_convert_to_pdf_cleans_up_partial_on_nonzero_exit(tmp_path, monkeypatch):
+    """soffice can write garbage then crash — leftover must not survive."""
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters._which_soffice",
+        lambda: "/fake/soffice",
+    )
+
+    def _write_then_fail(*a, **kw):
+        out = tmp_path / "doc.pdf"
+        out.write_bytes(b"partial...")
+        return _fake_completed(1, b"crashed")
+
+    monkeypatch.setattr(
+        "rufino.engine.process.batch.converters.subprocess.run", _write_then_fail,
+    )
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    with pytest.raises(ConversionError, match="exit=1"):
+        convert_to_pdf(src, out_dir=tmp_path)
+    assert not (tmp_path / "doc.pdf").exists()

@@ -4,6 +4,8 @@ from types import MappingProxyType
 from typing import Any, Mapping
 import yaml
 
+from rufino.engine.process._validation import validate_compression_floor
+
 
 class ManifestParseError(Exception):
     """Raised when worker adapter manifest is invalid."""
@@ -32,6 +34,12 @@ class WorkerAdapterManifest:
     transform_hook: str | None = None
     batch_size: int = _DEFAULT_BATCH_SIZE
     compression_floor: float | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "compression_floor",
+            validate_compression_floor(self.compression_floor),
+        )
 
 
 _REQUIRED = (
@@ -92,20 +100,10 @@ def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
             f"batch_size must be >= 1, got {batch_size_raw}"
         )
 
-    compression_floor_raw = raw.get("compression_floor")
-    if compression_floor_raw is not None:
-        if isinstance(compression_floor_raw, bool) or not isinstance(
-            compression_floor_raw, (int, float),
-        ):
-            raise ManifestParseError(
-                f"compression_floor must be a number, "
-                f"got {type(compression_floor_raw).__name__}"
-            )
-        if not (0.0 <= float(compression_floor_raw) <= 1.0):
-            raise ManifestParseError(
-                f"compression_floor must be in [0.0, 1.0], "
-                f"got {compression_floor_raw}"
-            )
+    try:
+        compression_floor = validate_compression_floor(raw.get("compression_floor"))
+    except ValueError as e:
+        raise ManifestParseError(str(e)) from e
 
     return WorkerAdapterManifest(
         adapter_name=raw["adapter_name"],
@@ -121,9 +119,5 @@ def parse_worker_manifest(yaml_text: str) -> WorkerAdapterManifest:
         context_injectors=_freeze(raw.get("context_injectors", [])),
         transform_hook=raw.get("transform_hook"),
         batch_size=batch_size_raw,
-        compression_floor=(
-            float(compression_floor_raw)
-            if compression_floor_raw is not None
-            else None
-        ),
+        compression_floor=compression_floor,
     )

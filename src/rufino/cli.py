@@ -259,9 +259,34 @@ def qa_poll_cmd(vault_root: Path, state_dir: Path) -> None:
 
     asyncio.run(_process_all())
     click.echo(f"dispatched={dispatched}")
+    # An ``.error`` file whose sibling ``.md`` no longer exists is an
+    # orphan from a process kill between unlink + move (qa_resume).
+    # Drop it silently — surfacing it would fire forever on every tick.
+    structural: list[Path] = []
+    for ef in sorted(questions_dir.glob("*.error")):
+        md_sibling = ef.with_suffix("")
+        if not md_sibling.exists():
+            try:
+                ef.unlink()
+            except OSError as e:
+                click.echo(
+                    f"warning: could not remove orphan {ef.name}: {e}",
+                    err=True,
+                )
+            continue
+        structural.append(ef)
+    if structural:
+        click.echo(f"structural_failures={len(structural)}:", err=True)
+        for ef in structural:
+            click.echo(
+                f"  {ef.name}: {ef.read_text(encoding='utf-8').strip()}",
+                err=True,
+            )
     if failures:
         for f in failures:
             click.echo(f"Error: {f}", err=True)
+        raise click.exceptions.Exit(code=1)
+    if structural:
         raise click.exceptions.Exit(code=1)
 
 
@@ -585,10 +610,15 @@ def materialize_cmd(
                    "flattening to markdown. The worker reads the PDF natively "
                    "(with vision), preserving embedded diagrams and images. "
                    "Requires `soffice` in PATH.")
+@click.option("--timeout", "timeout_seconds", type=float, default=900.0,
+              show_default=True,
+              help="Per-worker timeout in seconds. Default is generous (15 min) "
+                   "for dense notes (e.g. long 1:1s); lower it if you want "
+                   "faster failure on stuck workers.")
 def process_batch_cmd(
     source: Path, adapter_dir: Path, vault_root: Path,
     workers: int | None, batch_size: int | None, dry_run: bool,
-    multimodal: bool,
+    multimodal: bool, timeout_seconds: float,
 ) -> None:
     """Process a corpus (ZIP or directory) into augmented vault notes."""
     if multimodal:
@@ -601,7 +631,7 @@ def process_batch_cmd(
         result = asyncio.run(run_batch(
             source=source, adapter_dir=adapter_dir, vault_root=vault_root,
             workers=workers, batch_size=batch_size, dry_run=dry_run,
-            multimodal=multimodal,
+            multimodal=multimodal, timeout_seconds=timeout_seconds,
         ))
     except WorkerSessionExpiredError as e:
         click.echo(f"Error: {e}", err=True)
@@ -619,11 +649,22 @@ def process_batch_cmd(
         click.echo(f"dry-run: plan written to {result.plan_path}")
         click.echo(f"notes_total={result.notes_total}")
         return
-    click.echo(
+    line = (
         f"run_id={result.run_id} total={result.notes_total} "
         f"ok={result.notes_ok} failed={result.notes_failed} "
         f"pending_qa={result.notes_pending_qa}"
     )
+    if result.notes_skipped_stage:
+        line += (
+            f" skipped_stage={result.notes_skipped_stage}"
+            f" (see {result.run_dir}/run.json for paths)"
+        )
+    if result.notes_below_compression_floor:
+        line += (
+            f" below_compression_floor={result.notes_below_compression_floor}"
+            f" (floor={result.compression_floor})"
+        )
+    click.echo(line)
 
 
 def _ingest_job_id(vault_root: Path, adapter_name: str) -> str:

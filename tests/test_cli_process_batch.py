@@ -65,6 +65,70 @@ def test_process_batch_passes_multimodal_flag(
     assert mock_run.call_args.kwargs["multimodal"] is True
 
 
+def test_process_batch_passes_timeout(tmp_path, monkeypatch, batch_adapter):
+    """--timeout must reach run_batch as timeout_seconds (float)."""
+    from unittest.mock import patch, AsyncMock
+    from rufino.engine.process.batch.runner import BatchRunResult
+
+    adapter = batch_adapter()
+    source = tmp_path / "corpus"
+    (source / "math").mkdir(parents=True)
+    (source / "math" / "n1.md").write_text("# n\n")
+    vault = tmp_path / "vault"
+
+    fake_result = BatchRunResult(
+        run_id="r1", dry_run=True, notes_total=0, notes_ok=0,
+        notes_failed=0, notes_pending_qa=0, plan_path=tmp_path / "plan.json",
+    )
+    runner = CliRunner()
+    with patch(
+        "rufino.cli.run_batch",
+        new_callable=AsyncMock, return_value=fake_result,
+    ) as mock_run:
+        result = runner.invoke(cli, [
+            "process-batch", str(source),
+            "--adapter", str(adapter),
+            "--vault", str(vault),
+            "--dry-run",
+            "--timeout", "900",
+        ])
+    assert result.exit_code == 0, result.output
+    assert mock_run.call_args.kwargs["timeout_seconds"] == 900.0
+
+
+def test_process_batch_timeout_defaults_to_900(
+    tmp_path, monkeypatch, batch_adapter
+):
+    """Without --timeout the runner gets the generous 900s (15 min) default,
+    so dense notes don't depend on the retry path to survive."""
+    from unittest.mock import patch, AsyncMock
+    from rufino.engine.process.batch.runner import BatchRunResult
+
+    adapter = batch_adapter()
+    source = tmp_path / "corpus"
+    (source / "math").mkdir(parents=True)
+    (source / "math" / "n1.md").write_text("# n\n")
+    vault = tmp_path / "vault"
+
+    fake_result = BatchRunResult(
+        run_id="r1", dry_run=True, notes_total=0, notes_ok=0,
+        notes_failed=0, notes_pending_qa=0, plan_path=tmp_path / "plan.json",
+    )
+    runner = CliRunner()
+    with patch(
+        "rufino.cli.run_batch",
+        new_callable=AsyncMock, return_value=fake_result,
+    ) as mock_run:
+        result = runner.invoke(cli, [
+            "process-batch", str(source),
+            "--adapter", str(adapter),
+            "--vault", str(vault),
+            "--dry-run",
+        ])
+    assert result.exit_code == 0, result.output
+    assert mock_run.call_args.kwargs["timeout_seconds"] == 900.0
+
+
 def test_process_batch_multimodal_defaults_to_false(
     tmp_path, monkeypatch, batch_adapter
 ):
@@ -103,7 +167,9 @@ def test_process_batch_multimodal_fails_fast_without_soffice(
     before touching the runner — fail-fast, not mid-batch."""
     from unittest.mock import patch, AsyncMock
 
-    monkeypatch.setattr("shutil.which", lambda name: None)
+    monkeypatch.setattr(
+        "rufino.runtime.prereq_checker.shutil.which", lambda name: None,
+    )
 
     adapter = batch_adapter()
     source = tmp_path / "corpus"
@@ -127,3 +193,100 @@ def test_process_batch_multimodal_fails_fast_without_soffice(
     assert result.exit_code == 127, result.output
     assert "libreoffice" in result.output.lower() or "brew install" in result.output.lower()
     mock_run.assert_not_called()
+
+
+def test_process_batch_multimodal_proceeds_when_soffice_present(
+    tmp_path, monkeypatch, batch_adapter,
+):
+    """Positive case paired with the negative: confirms the patch target
+    is the real one used by the prereq check. If a refactor changes the
+    import style and the negative test silently no-ops (real soffice on
+    PATH), this positive test detects the drift."""
+    from unittest.mock import patch, AsyncMock
+
+    monkeypatch.setattr(
+        "rufino.runtime.prereq_checker.shutil.which",
+        lambda name: "/fake/soffice" if name == "soffice" else None,
+    )
+
+    adapter = batch_adapter()
+    source = tmp_path / "corpus"
+    (source / "math").mkdir(parents=True)
+    (source / "math" / "n1.md").write_text("# n\n")
+    vault = tmp_path / "vault"
+
+    runner = CliRunner()
+    with patch(
+        "rufino.cli.run_batch",
+        new_callable=AsyncMock,
+    ) as mock_run:
+        mock_run.return_value.dry_run = True
+        mock_run.return_value.plan_path = vault / "plan.json"
+        mock_run.return_value.notes_total = 1
+        result = runner.invoke(cli, [
+            "process-batch", str(source),
+            "--adapter", str(adapter),
+            "--vault", str(vault),
+            "--dry-run",
+            "--multimodal",
+        ])
+    assert result.exit_code == 0, result.output
+    mock_run.assert_called_once()
+
+
+def test_process_batch_cli_summary_omits_optional_fields_when_zero(
+    tmp_path, monkeypatch, batch_adapter,
+):
+    """The summary line must NOT include skipped_stage / below_compression_floor
+    when those counters are zero — keeps the common-case output noise-free."""
+    from unittest.mock import patch, AsyncMock
+    from rufino.engine.process.batch.runner import BatchRunResult
+
+    adapter = batch_adapter()
+    source = tmp_path / "corpus"
+    (source / "math").mkdir(parents=True)
+    (source / "math" / "n1.md").write_text("# n\n")
+    vault = tmp_path / "vault"
+
+    runner = CliRunner()
+    with patch("rufino.cli.run_batch", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = BatchRunResult(
+            run_id="r1", dry_run=False,
+            notes_total=1, notes_ok=1, notes_failed=0, notes_pending_qa=0,
+            notes_skipped_stage=0, notes_below_compression_floor=0,
+        )
+        result = runner.invoke(cli, [
+            "process-batch", str(source),
+            "--adapter", str(adapter), "--vault", str(vault),
+        ])
+    assert result.exit_code == 0
+    assert "skipped_stage" not in result.output
+    assert "below_compression_floor" not in result.output
+
+
+def test_process_batch_cli_summary_surfaces_below_compression_floor(
+    tmp_path, monkeypatch, batch_adapter,
+):
+    from unittest.mock import patch, AsyncMock
+    from rufino.engine.process.batch.runner import BatchRunResult
+
+    adapter = batch_adapter()
+    source = tmp_path / "corpus"
+    (source / "math").mkdir(parents=True)
+    (source / "math" / "n1.md").write_text("# n\n")
+    vault = tmp_path / "vault"
+
+    runner = CliRunner()
+    with patch("rufino.cli.run_batch", new_callable=AsyncMock) as mock_run:
+        mock_run.return_value = BatchRunResult(
+            run_id="r1", dry_run=False,
+            notes_total=10, notes_ok=10, notes_failed=0, notes_pending_qa=0,
+            notes_skipped_stage=0,
+            notes_below_compression_floor=4, compression_floor=0.9,
+        )
+        result = runner.invoke(cli, [
+            "process-batch", str(source),
+            "--adapter", str(adapter), "--vault", str(vault),
+        ])
+    assert "below_compression_floor=4" in result.output
+    assert "floor=0.9" in result.output

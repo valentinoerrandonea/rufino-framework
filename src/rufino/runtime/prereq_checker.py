@@ -66,12 +66,6 @@ BUILT_IN_CHECKS: tuple[PrereqCheck, ...] = (
 
 
 def check_soffice_available() -> tuple[bool, str]:
-    """Convenience wrapper used by ``process-batch --multimodal`` to fail fast
-    when LibreOffice is not installed.
-
-    Returns ``(available, human_message)``. The message is actionable when
-    missing — it includes the macOS install command so users can copy-paste.
-    """
     path = shutil.which("soffice")
     if path:
         return True, f"soffice found at {path}"

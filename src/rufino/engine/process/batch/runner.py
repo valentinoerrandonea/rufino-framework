@@ -16,11 +16,13 @@ from rufino.engine._transform_hook_invoker import _maybe_apply_transform_hook
 from rufino.engine.process.batch.committer import commit
 from rufino.engine.process.batch.consolidator import (
     ConsolidationPlan,
+    Move,
+    TagIndexUpdate,
     run_consolidator,
 )
 from rufino.engine.process.batch.dispatcher import dispatch
 from rufino.engine.process.batch.errors import BatchError, ConsolidationError
-from rufino.engine.process.batch.planner import build_plan
+from rufino.engine.process.batch.planner import Plan, build_plan
 from rufino.engine.process.batch.qa_pending import (
     collect_pending,
     write_questions_to_vault,
@@ -54,7 +56,12 @@ class BatchRunResult:
     notes_ok: int = 0
     notes_failed: int = 0
     notes_pending_qa: int = 0
+    notes_skipped_stage: int = 0
+    notes_skipped_stage_paths: tuple[str, ...] = ()
+    notes_below_compression_floor: int = 0
+    compression_floor: float | None = None
     plan_path: Path | None = None
+    run_dir: Path | None = None
     commit_skipped: bool = False
 
 
@@ -93,18 +100,21 @@ def _ensure_gitignore(vault_root: Path) -> None:
     tmp.replace(gi)
 
 
-def _find_staged_input(staged: StagedCorpus, slug: str) -> Path | None:
-    """Locate the staged input file whose stem matches the given slug.
+def _build_worker_slug_index(plan: Plan) -> dict[tuple[str, str], Path]:
+    """Map (worker_id, slug) → original staged path. Worker IDs are unique
+    by construction; the validator rejects stem collisions within a worker,
+    so the key is globally unique — unlike a slug-only index which would
+    silently shadow same-named notes across groups/workers."""
+    index: dict[tuple[str, str], Path] = {}
+    for assignment in plan.workers:
+        for note_path in assignment.notes:
+            index[(assignment.worker_id, note_path.stem)] = note_path
+    return index
 
-    Returns None when the slug was minted from a source that no longer maps
-    cleanly to a staged file (e.g. derived names) — caller treats this as a
-    silent skip for advisory checks.
-    """
-    for group_files in staged.groups.values():
-        for p in group_files:
-            if p.stem == slug:
-                return p
-    return None
+
+def _worker_id_of(nv_augmented_path: Path) -> str:
+    # augmented_path = <run>/workers/<wid>/augmented/<slug>.md
+    return nv_augmented_path.parents[1].name
 
 
 def _coerce_tag_list(raw: object) -> list[str]:
@@ -194,7 +204,7 @@ def _naive_commit_plan(
     The caller is expected to demote ``dropped`` into the failure bucket so
     the run summary reflects what actually landed.
     """
-    moves: list[dict[str, str]] = []
+    moves: list[Move] = []
     tag_map: dict[str, list[str]] = {}
     dropped: list[NoteValidation] = []
     for nv in passed:
@@ -225,13 +235,15 @@ def _naive_commit_plan(
             ))
             continue
         rel_from = nv.augmented_path.relative_to(run_dir)
-        moves.append({"from": str(rel_from), "to": dest_rel})
+        moves.append(Move(from_=str(rel_from), to=dest_rel))
         for tag in _coerce_tag_list(fm.get("tags")):
             tag_map.setdefault(tag, []).append(slug)
     plan = ConsolidationPlan(
-        moves=moves, concept_writes=[], author_writes=[],
-        tag_index_updates=[{"tag": t, "notes": ns} for t, ns in tag_map.items()],
-        log_entries=[f"batch-naive-commit notes={len(moves)} dropped={len(dropped)}"],
+        moves=tuple(moves),
+        tag_index_updates=tuple(
+            TagIndexUpdate(tag=t, notes=tuple(ns)) for t, ns in tag_map.items()
+        ),
+        log_entries=(f"batch-naive-commit notes={len(moves)} dropped={len(dropped)}",),
     )
     return plan, dropped
 
@@ -245,7 +257,7 @@ async def run_batch(
     batch_size: int | None,
     dry_run: bool,
     skip_consolidator: bool = False,
-    timeout_seconds: float = 300.0,
+    timeout_seconds: float = 900.0,
     multimodal: bool = False,
 ) -> BatchRunResult:
     vault_root = vault_root.expanduser().resolve()
@@ -315,7 +327,7 @@ async def _run_batch_locked(
         return BatchRunResult(
             run_id=run_id, dry_run=True,
             notes_total=notes_total,
-            plan_path=plan_path, commit_skipped=True,
+            plan_path=plan_path, run_dir=run_dir, commit_skipped=True,
         )
 
     # DISPATCH
@@ -366,18 +378,20 @@ async def _run_batch_locked(
             all_passed.extend(report.passed)
     log.info("VALIDATE done passed=%d failed=%d", len(all_passed), len(all_failed))
 
-    # Compression floor check (advisory, v0.3 — logs a warning per note that
-    # falls below the floor; does NOT mark them as failed).
+    notes_below_floor = 0
     if manifest.compression_floor is not None:
+        slug_index = _build_worker_slug_index(plan)
         for nv in all_passed:
-            staged_path = _find_staged_input(staged, nv.slug)
+            staged_path = slug_index.get((_worker_id_of(nv.augmented_path), nv.slug))
             if staged_path is None:
                 continue
-            check_compression_ratio(
+            check = check_compression_ratio(
                 original=staged_path,
                 augmented=nv.augmented_path,
                 floor=manifest.compression_floor,
             )
+            if check is not None and check.below_floor:
+                notes_below_floor += 1
 
     # TRANSFORM HOOK — mutate passed notes' frontmatter in place. Misbehaving
     # hooks degrade gracefully (logged warning) so a single bad hook can't
@@ -421,12 +435,17 @@ async def _run_batch_locked(
     log.info("COMMIT done")
 
     notes_ok = len(plan_obj.moves)
+    skipped_paths = tuple(str(p) for p in staged.skipped)
     summary = {
         "run_id": run_id,
         "notes_total": notes_total,
         "notes_ok": notes_ok,
         "notes_failed": len(all_failed),
         "notes_pending_qa": len(pendings),
+        "notes_skipped_stage": len(skipped_paths),
+        "notes_skipped_stage_paths": list(skipped_paths),
+        "notes_below_compression_floor": notes_below_floor,
+        "compression_floor": manifest.compression_floor,
     }
     (run_dir / "run.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
@@ -435,5 +454,10 @@ async def _run_batch_locked(
         notes_total=summary["notes_total"], notes_ok=summary["notes_ok"],
         notes_failed=summary["notes_failed"],
         notes_pending_qa=summary["notes_pending_qa"],
+        notes_skipped_stage=len(skipped_paths),
+        notes_skipped_stage_paths=skipped_paths,
+        notes_below_compression_floor=notes_below_floor,
+        compression_floor=manifest.compression_floor,
         plan_path=plan_path,
+        run_dir=run_dir,
     )

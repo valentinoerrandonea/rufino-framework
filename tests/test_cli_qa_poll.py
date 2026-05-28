@@ -14,6 +14,51 @@ def test_qa_poll_cli_runs_with_no_pending(tmp_vault: Path, tmp_path: Path):
     assert "dispatched=0" in result.output
 
 
+def test_qa_poll_cli_surfaces_structural_failures(tmp_vault: Path, tmp_path: Path):
+    """When .error sidecars exist with a live `.md` sibling (qa_resume wrote
+    them on structural fail), the CLI must surface them — count + per-question
+    detail — and exit non-zero."""
+    qd = tmp_vault / "questions"
+    qd.mkdir(parents=True, exist_ok=True)
+    # The .md sibling is required — orphan .error files get cleaned up
+    # silently instead of firing forever.
+    (qd / "r1-w0001-n1.md").write_text(
+        "---\norigin: process-batch\n---\n", encoding="utf-8",
+    )
+    (qd / "r1-w0001-n1.md.error").write_text(
+        "ValueError: plan path escapes vault\n", encoding="utf-8",
+    )
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "qa-poll",
+        "--vault", str(tmp_vault),
+        "--state-dir", str(tmp_path / ".rufino-state"),
+    ])
+    assert result.exit_code == 1
+    combined = result.output + (result.stderr if result.stderr_bytes else "")
+    assert "structural_failures=1" in combined
+    assert "plan path escapes vault" in combined
+
+
+def test_qa_poll_cli_cleans_up_orphan_error_files(tmp_vault: Path, tmp_path: Path):
+    """An .error file without a sibling .md (orphan from a kill between
+    unlink + move, or manual question deletion) must not fire structural
+    failure on every tick — it gets cleaned up silently."""
+    qd = tmp_vault / "questions"
+    qd.mkdir(parents=True, exist_ok=True)
+    orphan = qd / "r1-w0001-old.md.error"
+    orphan.write_text("stale\n", encoding="utf-8")
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "qa-poll",
+        "--vault", str(tmp_vault),
+        "--state-dir", str(tmp_path / ".rufino-state"),
+    ])
+    assert result.exit_code == 0
+    assert "structural_failures" not in result.output
+    assert not orphan.exists()
+
+
 def test_qa_poll_cli_does_not_consume_non_batch_question(tmp_vault: Path, tmp_path: Path):
     """qa-poll only resumes process-batch questions. Legacy QALoopAPI questions
     (origin != 'process-batch') stay in `questions/` untouched, callback intact."""

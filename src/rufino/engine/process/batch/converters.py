@@ -1,15 +1,4 @@
-"""Format converters for process-batch input files.
-
-Markdown and plain text pass through unchanged. .docx → markdown via mammoth.
-.pptx → markdown via python-pptx (one section per slide). Legacy formats
-(.doc, .ppt) and unknown extensions raise UnsupportedFormatError. PDFs also
-raise — they are passthrough at the stager level (the worker reads them via
-the Read tool directly).
-
-In multimodal mode (opt-in via the stager), .docx and .pptx are instead
-rendered to .pdf via LibreOffice headless (``convert_to_pdf``), preserving
-embedded diagrams/images that mammoth/python-pptx flatten away.
-"""
+"""Format converters for process-batch staging."""
 import logging
 import shutil
 import subprocess
@@ -24,11 +13,7 @@ _log = logging.getLogger(__name__)
 
 
 class SofficeNotFoundError(RuntimeError):
-    """Raised when LibreOffice (soffice) is required but not in PATH.
-
-    Distinct from ``ConversionError``: this signals a missing system-level
-    dependency (config problem), not a runtime conversion failure.
-    """
+    """soffice missing from PATH — system config problem, not a conversion failure."""
 
 
 def _which_soffice() -> str | None:
@@ -36,22 +21,17 @@ def _which_soffice() -> str | None:
     return shutil.which("soffice")
 
 
+def _cleanup_partial(out_pdf: Path) -> None:
+    if out_pdf.exists():
+        try:
+            out_pdf.unlink()
+        except OSError as e:
+            _log.warning("could not remove partial PDF %s: %s", out_pdf, e)
+
+
 def convert_to_pdf(
     path: Path, *, out_dir: Path, timeout: float = 120.0,
 ) -> Path:
-    """Convert a .docx/.pptx (or any soffice-supported format) to PDF.
-
-    Uses LibreOffice headless (``soffice --headless --convert-to pdf``) so the
-    worker's ``Read`` tool can ingest the document natively with vision,
-    preserving diagrams, charts and images that the markdown converters drop.
-
-    Returns the path to the output PDF inside ``out_dir``.
-
-    Raises:
-        SofficeNotFoundError: when ``soffice`` is not in PATH.
-        ConversionError: when soffice times out, exits non-zero, or produces
-            no output file.
-    """
     soffice = _which_soffice()
     if soffice is None:
         raise SofficeNotFoundError(
@@ -59,6 +39,7 @@ def convert_to_pdf(
             "(macOS: brew install --cask libreoffice) to use multimodal mode."
         )
     out_dir.mkdir(parents=True, exist_ok=True)
+    out_pdf = out_dir / (path.stem + ".pdf")
     cmd = [
         soffice, "--headless", "--convert-to", "pdf",
         "--outdir", str(out_dir), str(path),
@@ -68,19 +49,37 @@ def convert_to_pdf(
             cmd, capture_output=True, timeout=timeout, check=False,
         )
     except subprocess.TimeoutExpired as e:
+        _cleanup_partial(out_pdf)
         raise ConversionError(
             f"soffice conversion timed out after {timeout}s for {path}"
         ) from e
     if result.returncode != 0:
+        _cleanup_partial(out_pdf)
         stderr = result.stderr.decode("utf-8", errors="replace")[:500]
         raise ConversionError(
             f"soffice failed for {path}: exit={result.returncode} "
             f"stderr={stderr}"
         )
-    out_pdf = out_dir / (path.stem + ".pdf")
+    # soffice exit 0 is not a guarantee — historic versions emit empty or
+    # truncated PDFs on certain DOCX inputs without flagging the failure.
     if not out_pdf.exists():
         raise ConversionError(
             f"soffice did not produce expected output {out_pdf}"
+        )
+    if out_pdf.stat().st_size == 0:
+        _cleanup_partial(out_pdf)
+        raise ConversionError(f"soffice produced empty PDF for {path}")
+    if out_pdf.read_bytes()[:4] != b"%PDF":
+        _cleanup_partial(out_pdf)
+        raise ConversionError(f"soffice produced non-PDF output for {path}")
+    if result.stderr:
+        # User opted into multimodal specifically for fidelity; surface
+        # soffice's non-fatal warnings (substituted font, missing image,
+        # etc.) so they can spot lost diagrams instead of silently
+        # accepting a degraded PDF.
+        _log.warning(
+            "soffice produced warnings (rc=0) for %s: %s",
+            path, result.stderr.decode("utf-8", errors="replace")[:500],
         )
     return out_pdf
 

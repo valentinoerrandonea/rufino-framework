@@ -70,3 +70,64 @@ def test_manifest_dict_fields_are_immutable():
         m.applies_when["injected"] = "evil"
     with pytest.raises(TypeError):
         m.output_schema["required"]["injected"] = "evil"
+
+
+def test_manifest_defaults_compression_floor_to_none():
+    m = parse_worker_manifest(VALID)
+    assert m.compression_floor is None
+
+
+def test_manifest_accepts_compression_floor_in_range():
+    yaml = VALID + "\ncompression_floor: 0.9\n"
+    m = parse_worker_manifest(yaml)
+    assert m.compression_floor == 0.9
+
+
+def test_manifest_accepts_compression_floor_zero_and_one():
+    for value in (0.0, 1.0):
+        yaml = VALID + f"\ncompression_floor: {value}\n"
+        assert parse_worker_manifest(yaml).compression_floor == value
+
+
+def test_manifest_coerces_int_compression_floor_to_float():
+    yaml = VALID + "\ncompression_floor: 1\n"
+    m = parse_worker_manifest(yaml)
+    assert isinstance(m.compression_floor, float)
+    assert m.compression_floor == 1.0
+
+
+@pytest.mark.parametrize("value", ["1.5", "-0.1", "2"])
+def test_manifest_rejects_compression_floor_out_of_range(value):
+    yaml = VALID + f"\ncompression_floor: {value}\n"
+    with pytest.raises(ManifestParseError, match=r"\[0\.0, 1\.0\]"):
+        parse_worker_manifest(yaml)
+
+
+def test_manifest_rejects_compression_floor_bool():
+    """bool is an int subclass in Python; without the explicit guard a YAML
+    'true' would silently coerce to 1.0."""
+    yaml = VALID + "\ncompression_floor: true\n"
+    with pytest.raises(ManifestParseError, match="must be a number"):
+        parse_worker_manifest(yaml)
+
+
+def test_manifest_rejects_compression_floor_string():
+    yaml = VALID + "\ncompression_floor: \"0.9\"\n"
+    with pytest.raises(ManifestParseError, match="must be a number"):
+        parse_worker_manifest(yaml)
+
+
+def test_manifest_construction_rejects_compression_floor_out_of_range():
+    """Direct dataclass construction must also enforce the invariant — not
+    only the YAML parser."""
+    yaml = VALID
+    base = parse_worker_manifest(yaml)
+    kwargs = {
+        f: getattr(base, f) for f in (
+            "adapter_name", "note_type", "applies_when", "llm", "mode_default",
+            "output_schema", "triple_vocabulary", "tag_axes", "destination_path",
+            "qa_triggers", "context_injectors", "transform_hook", "batch_size",
+        )
+    }
+    with pytest.raises(ValueError, match=r"\[0\.0, 1\.0\]"):
+        WorkerAdapterManifest(**kwargs, compression_floor=1.5)

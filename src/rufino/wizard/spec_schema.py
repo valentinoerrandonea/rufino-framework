@@ -4,6 +4,8 @@ from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from rufino.engine.process._validation import validate_compression_floor
+
 
 class SpecError(Exception):
     """Raised when the wizard spec is invalid."""
@@ -68,14 +70,14 @@ class ProcessSpec:
     context_injectors: tuple[Mapping[str, Any], ...]
     batch_size: int
     prompt_instructions: str
-    # Optional body for `transform.py`. Same semantics as IngestSpec — when
-    # provided, materializer writes the file + sets manifest.transform_hook.
     transform_hook_body: str | None = None
-    # Optional minimum acceptable ratio (output_words / input_words) for the
-    # processed body. When set (0.0–1.0), the engine injects an instruction
-    # into the worker preamble and the validator logs a warning if the ratio
-    # falls below this floor. None = no constraint (v0.2.x behavior).
     compression_floor: float | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "compression_floor",
+            validate_compression_floor(self.compression_floor),
+        )
 
 
 @dataclass(frozen=True)
@@ -296,21 +298,10 @@ def _validate_process(entry: Any, *, idx: int) -> ProcessSpec:
             f"got {type(transform_hook_body).__name__}"
         )
 
-    compression_floor = entry.get("compression_floor")
-    if compression_floor is not None:
-        if isinstance(compression_floor, bool) or not isinstance(
-            compression_floor, (int, float),
-        ):
-            raise SpecError(
-                f"{where}: compression_floor must be a number between 0.0 and 1.0, "
-                f"got {type(compression_floor).__name__}"
-            )
-        if not (0.0 <= compression_floor <= 1.0):
-            raise SpecError(
-                f"{where}: compression_floor must be in [0.0, 1.0], "
-                f"got {compression_floor}"
-            )
-        compression_floor = float(compression_floor)
+    try:
+        compression_floor = validate_compression_floor(entry.get("compression_floor"))
+    except ValueError as e:
+        raise SpecError(f"{where}: {e}") from e
 
     return ProcessSpec(
         adapter_name=adapter_name,
