@@ -20,7 +20,10 @@ from rufino.engine.process.batch.consolidator import (
     TagIndexUpdate,
     run_consolidator,
 )
-from rufino.engine.process.batch.dispatcher import dispatch
+from rufino.engine.process.batch.dispatcher import (
+    DEFAULT_WORKER_MODEL,
+    dispatch,
+)
 from rufino.engine.process.batch.errors import BatchError, ConsolidationError
 from rufino.engine.process.batch.planner import Plan, build_plan
 from rufino.engine.process.batch.qa_pending import (
@@ -259,6 +262,7 @@ async def run_batch(
     skip_consolidator: bool = False,
     timeout_seconds: float = 900.0,
     multimodal: bool = False,
+    model: str = DEFAULT_WORKER_MODEL,
 ) -> BatchRunResult:
     vault_root = vault_root.expanduser().resolve()
     adapter_dir = adapter_dir.expanduser().resolve()
@@ -272,6 +276,7 @@ async def run_batch(
                 skip_consolidator=skip_consolidator,
                 timeout_seconds=timeout_seconds,
                 multimodal=multimodal,
+                model=model,
             )
     except VaultLockedError as e:
         raise BatchError(str(e)) from e
@@ -288,6 +293,7 @@ async def _run_batch_locked(
     skip_consolidator: bool,
     timeout_seconds: float,
     multimodal: bool = False,
+    model: str = DEFAULT_WORKER_MODEL,
 ) -> BatchRunResult:
     if not adapter_dir.is_dir():
         raise BatchError(f"adapter_dir {adapter_dir} is not a directory")
@@ -333,7 +339,7 @@ async def _run_batch_locked(
     # DISPATCH
     vault_slug = compute_vault_slug(vault_root)
     concepts_head = _concepts_head_alphabetical(vault_root)
-    effective_workers = workers if workers is not None else min(4, max(1, len(plan.workers)))
+    effective_workers = workers if workers is not None else min(8, max(1, len(plan.workers)))
 
     def _prompt_for(assignment):
         staging_dir = run_dir / "workers" / assignment.worker_id
@@ -348,6 +354,7 @@ async def _run_batch_locked(
         plan=plan, run_dir=run_dir,
         system_prompt_for=_prompt_for, vault_slug=vault_slug,
         max_workers=effective_workers, timeout_seconds=timeout_seconds,
+        model=model,
     )
     log.info("DISPATCH done max_workers=%d", effective_workers)
     if outcome.truncated_count:
@@ -369,7 +376,7 @@ async def _run_batch_locked(
                 adapter_prompt_text=adapter_prompt,
                 worker_assignment=assignment, run_dir=run_dir,
                 vault_slug=vault_slug, max_retries=2,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=timeout_seconds, model=model,
             )
             all_passed.extend(report.passed)
             all_passed.extend(retry_report.passed)

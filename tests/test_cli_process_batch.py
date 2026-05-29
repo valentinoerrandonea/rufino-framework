@@ -96,6 +96,70 @@ def test_process_batch_passes_timeout(tmp_path, monkeypatch, batch_adapter):
     assert mock_run.call_args.kwargs["timeout_seconds"] == 900.0
 
 
+def test_process_batch_model_defaults_to_sonnet(
+    tmp_path, monkeypatch, batch_adapter
+):
+    """Without --model the runner gets sonnet — the fast default that keeps
+    per-note augmentation from inheriting the slow interactive Opus."""
+    from unittest.mock import patch, AsyncMock
+    from rufino.engine.process.batch.runner import BatchRunResult
+
+    adapter = batch_adapter()
+    source = tmp_path / "corpus"
+    (source / "math").mkdir(parents=True)
+    (source / "math" / "n1.md").write_text("# n\n")
+    vault = tmp_path / "vault"
+
+    fake_result = BatchRunResult(
+        run_id="r1", dry_run=True, notes_total=0, notes_ok=0,
+        notes_failed=0, notes_pending_qa=0, plan_path=tmp_path / "plan.json",
+    )
+    runner = CliRunner()
+    with patch(
+        "rufino.cli.run_batch",
+        new_callable=AsyncMock, return_value=fake_result,
+    ) as mock_run:
+        result = runner.invoke(cli, [
+            "process-batch", str(source),
+            "--adapter", str(adapter),
+            "--vault", str(vault),
+            "--dry-run",
+        ])
+    assert result.exit_code == 0, result.output
+    assert mock_run.call_args.kwargs["model"] == "sonnet"
+
+
+def test_process_batch_model_override(tmp_path, monkeypatch, batch_adapter):
+    """--model must reach run_batch verbatim."""
+    from unittest.mock import patch, AsyncMock
+    from rufino.engine.process.batch.runner import BatchRunResult
+
+    adapter = batch_adapter()
+    source = tmp_path / "corpus"
+    (source / "math").mkdir(parents=True)
+    (source / "math" / "n1.md").write_text("# n\n")
+    vault = tmp_path / "vault"
+
+    fake_result = BatchRunResult(
+        run_id="r1", dry_run=True, notes_total=0, notes_ok=0,
+        notes_failed=0, notes_pending_qa=0, plan_path=tmp_path / "plan.json",
+    )
+    runner = CliRunner()
+    with patch(
+        "rufino.cli.run_batch",
+        new_callable=AsyncMock, return_value=fake_result,
+    ) as mock_run:
+        result = runner.invoke(cli, [
+            "process-batch", str(source),
+            "--adapter", str(adapter),
+            "--vault", str(vault),
+            "--dry-run",
+            "--model", "opus",
+        ])
+    assert result.exit_code == 0, result.output
+    assert mock_run.call_args.kwargs["model"] == "opus"
+
+
 def test_process_batch_timeout_defaults_to_900(
     tmp_path, monkeypatch, batch_adapter
 ):

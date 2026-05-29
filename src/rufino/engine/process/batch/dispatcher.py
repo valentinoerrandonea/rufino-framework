@@ -18,6 +18,12 @@ from rufino.engine.process.batch.runner_helper import ClaudeResult, run_claude
 
 SESSION_EXPIRED_EXIT_CODE = 41
 
+# Default worker model. Opus is needlessly slow/expensive for per-note
+# augmentation (frontmatter + triples + tags + wikilinks); Sonnet does the same
+# work several times faster. Pinned explicitly so the worker never inherits the
+# operator's interactive default. Override via process-batch's --model.
+DEFAULT_WORKER_MODEL = "sonnet"
+
 # Final positional argument passed to `claude -p`. The system prompt carries
 # all the instructions; this string just nudges the worker to start. Kept as
 # a constant so retry.py can pass the exact same kickoff and tests can grep
@@ -44,10 +50,13 @@ class DispatchOutcome:
         return sum(1 for w in self.workers if w.truncated)
 
 
-def build_argv(*, system_prompt: str, vault_slug: str) -> list[str]:
+def build_argv(
+    *, system_prompt: str, vault_slug: str, model: str = DEFAULT_WORKER_MODEL,
+) -> list[str]:
     return [
         "claude",
         "-p",
+        "--model", model,
         "--system-prompt", system_prompt,
         "--allowedTools",
         f"Read,Write,Glob,mcp__ask-rufino-{vault_slug}__*",
@@ -73,12 +82,15 @@ async def _run_one(
     system_prompt: str,
     vault_slug: str,
     timeout_seconds: float,
+    model: str = DEFAULT_WORKER_MODEL,
 ) -> WorkerOutcome:
     staging_dir = run_dir / "workers" / assignment.worker_id
     staging_dir.mkdir(parents=True, exist_ok=True)
     _write_assignment(staging_dir, assignment, run_id=run_dir.name)
 
-    argv = build_argv(system_prompt=system_prompt, vault_slug=vault_slug)
+    argv = build_argv(
+        system_prompt=system_prompt, vault_slug=vault_slug, model=model,
+    )
 
     result: ClaudeResult = await run_claude(
         argv=argv,
@@ -108,6 +120,7 @@ async def dispatch(
     vault_slug: str,
     max_workers: int,
     timeout_seconds: float = 300.0,
+    model: str = DEFAULT_WORKER_MODEL,
 ) -> DispatchOutcome:
     """Run all workers in plan.workers, bounded by max_workers concurrent.
 
@@ -134,6 +147,7 @@ async def dispatch(
                 system_prompt=system_prompt_for(a),
                 vault_slug=vault_slug,
                 timeout_seconds=timeout_seconds,
+                model=model,
             )
 
     outcomes = await asyncio.gather(*(_guarded(a) for a in plan.workers))

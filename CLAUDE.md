@@ -118,6 +118,11 @@ Closed the four critical gaps surfaced by the facultad vault bootstrap session (
 - **Enriched concept bodies** — the consolidator preamble now requires definición + contexto + ejemplo + relacionado-con + formulado-por for every `concept_write` content, drawing from the augmented notes where the concept appears. No more `_Expandi con tu propia explicacion_` placeholders.
 - **`--multimodal` flag on process-batch** — opt-in. Converts DOCX/PPTX to PDF via `soffice --headless --convert-to pdf`, preserving embedded diagrams/images for the worker (which reads the PDF natively with vision). Requires LibreOffice in PATH; the CLI fails fast with an install hint when missing. Default off — v0.2.x mammoth/python-pptx flatten-to-text path stays unchanged.
 
+### What landed in v0.3.3 (worker performance)
+
+- **Workers run on Sonnet by default** — `build_argv` now pins `--model` (constant `DEFAULT_WORKER_MODEL = "sonnet"` in `batch/dispatcher.py`). Previously workers inherited the operator's interactive default (Opus), making per-note augmentation needlessly slow. The model threads through `run_batch → dispatch`/`retry_failed → build_argv`; override per-run with `process-batch --model opus`. Also: `nested-session` env markers (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`) are stripped in `run_claude` (v0.3.2) so workers launch even when rufino itself runs inside Claude Code.
+- **Default concurrency raised to `min(8, num_groups)`** (was 4). Override with `--workers`.
+
 ### Deferred for v0.4+
 
 Rough edges intentionally NOT fixed in v0.3.0:
