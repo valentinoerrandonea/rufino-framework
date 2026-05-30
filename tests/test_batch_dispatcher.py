@@ -3,13 +3,16 @@ from pathlib import Path
 
 import pytest
 
+from rufino.engine.process.batch import dispatcher as dispatcher_mod
 from rufino.engine.process.batch.dispatcher import (
     DispatchOutcome,
     WorkerOutcome,
+    build_argv,
     dispatch,
 )
 from rufino.engine.process.batch.errors import WorkerSessionExpiredError
 from rufino.engine.process.batch.planner import WorkerAssignment, Plan
+from rufino.engine.process.batch.runner_helper import ClaudeResult
 
 
 @pytest.fixture(autouse=True)
@@ -31,6 +34,40 @@ def _plan_with(notes_by_worker: dict[str, list[Path]]) -> Plan:
         for wid, ns in notes_by_worker.items()
     )
     return Plan(run_id="r1", adapter_dir="/a", workers=workers)
+
+
+def test_build_argv_defaults_to_sonnet():
+    """Workers run on Sonnet by default — Opus is needlessly slow for the
+    per-note augmentation task. The flag pins it explicitly so the worker
+    never inherits the operator's interactive default model."""
+    argv = build_argv(system_prompt="p", vault_slug="v")
+    assert "--model" in argv
+    assert argv[argv.index("--model") + 1] == "sonnet"
+
+
+def test_build_argv_model_override():
+    argv = build_argv(system_prompt="p", vault_slug="v", model="opus")
+    assert argv[argv.index("--model") + 1] == "opus"
+
+
+def test_dispatch_propagates_model_to_argv(tmp_path, monkeypatch):
+    """dispatch threads the chosen model down to each worker's argv."""
+    captured: dict[str, list[str]] = {}
+
+    async def _spy(*, argv, cwd, env, timeout_seconds):
+        captured["argv"] = argv
+        return ClaudeResult(exit_code=0)
+
+    monkeypatch.setattr(dispatcher_mod, "run_claude", _spy)
+    n = _staged_note(tmp_path, "g", "n1")
+    plan = _plan_with({"w0001": [n]})
+
+    asyncio.run(dispatch(
+        plan=plan, run_dir=tmp_path,
+        system_prompt_for=lambda a: "p", vault_slug="v",
+        max_workers=1, timeout_seconds=30, model="haiku",
+    ))
+    assert captured["argv"][captured["argv"].index("--model") + 1] == "haiku"
 
 
 def test_dispatch_writes_outputs(tmp_path, monkeypatch):

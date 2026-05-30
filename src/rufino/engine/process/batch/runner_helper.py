@@ -15,6 +15,12 @@ TIMEOUT_EXIT_CODE = 124
 # Cap per-stream capture to keep a runaway worker from OOM'ing the parent.
 MAX_OUTPUT_BYTES = 1_000_000
 
+# Markers Claude Code sets in its own environment. The nested-session guard in
+# the `claude` binary aborts (exit 1) if it sees CLAUDECODE, which breaks
+# `rufino process-batch` when launched from inside a Claude Code session. We
+# strip both before spawning the worker so the child starts a clean session.
+_NESTED_SESSION_ENV_KEYS = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT")
+
 
 @dataclass(frozen=True)
 class ClaudeResult:
@@ -121,9 +127,15 @@ async def run_claude(
     streaming-bounded I/O (~1 MB cap per stream). Returns a
     :class:`ClaudeResult` — callers inspect ``exit_code`` for non-zero /
     timeout (124) / auth-fail (41), and ``truncated`` to surface logging.
+
+    Strips nested-session markers (``CLAUDECODE`` & co.) from the env so the
+    worker `claude` doesn't abort when rufino itself runs inside Claude Code.
     """
+    child_env = {
+        k: v for k, v in env.items() if k not in _NESTED_SESSION_ENV_KEYS
+    }
     worker = await run_claude_worker(
-        cmd=argv, cwd=cwd, timeout=timeout_seconds, env=env,
+        cmd=argv, cwd=cwd, timeout=timeout_seconds, env=child_env,
     )
     if worker.timed_out:
         return ClaudeResult(

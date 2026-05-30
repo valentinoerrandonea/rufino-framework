@@ -9,6 +9,7 @@ import click
 
 from rufino.version import VERSION
 from rufino.engine.memory_loop.installer import install_memory_loop, InstallationError
+from rufino.engine.process.batch.dispatcher import DEFAULT_WORKER_MODEL
 from rufino.engine.process.batch.errors import BatchError, WorkerSessionExpiredError
 from rufino.engine.process.batch.runner import run_batch
 from rufino.engine.process.dispatcher import process_note as _process_note
@@ -600,9 +601,12 @@ def materialize_cmd(
               type=click.Path(path_type=Path),
               help="Vault root")
 @click.option("--workers", type=int, default=None,
-              help="Max concurrent workers (default: min(4, num_groups))")
+              help="Max concurrent workers (default: min(8, num_groups))")
 @click.option("--batch-size", "batch_size", type=int, default=None,
               help="Override the adapter manifest's batch_size")
+@click.option("--model", default=DEFAULT_WORKER_MODEL, show_default=True,
+              help="Model each worker runs on. Sonnet is the fast default; "
+                   "pass `opus` for maximum fidelity at higher latency/cost.")
 @click.option("--dry-run", is_flag=True,
               help="Stop after PLAN; print the plan path; do not spawn workers")
 @click.option("--multimodal", is_flag=True, default=False,
@@ -618,7 +622,7 @@ def materialize_cmd(
 def process_batch_cmd(
     source: Path, adapter_dir: Path, vault_root: Path,
     workers: int | None, batch_size: int | None, dry_run: bool,
-    multimodal: bool, timeout_seconds: float,
+    multimodal: bool, timeout_seconds: float, model: str,
 ) -> None:
     """Process a corpus (ZIP or directory) into augmented vault notes."""
     if multimodal:
@@ -632,6 +636,7 @@ def process_batch_cmd(
             source=source, adapter_dir=adapter_dir, vault_root=vault_root,
             workers=workers, batch_size=batch_size, dry_run=dry_run,
             multimodal=multimodal, timeout_seconds=timeout_seconds,
+            model=model,
         ))
     except WorkerSessionExpiredError as e:
         click.echo(f"Error: {e}", err=True)

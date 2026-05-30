@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 
 from rufino.engine.process.batch.dispatcher import (
+    DEFAULT_WORKER_MODEL,
     SESSION_EXPIRED_EXIT_CODE,
     build_argv,
 )
@@ -70,6 +71,7 @@ async def _retry_one(
     run_id: str,
     vault_slug: str,
     timeout_seconds: float,
+    model: str = DEFAULT_WORKER_MODEL,
 ) -> ClaudeResult:
     canonical = staging_dir / "assignment.json"
     backup = staging_dir / "assignment.original.json"
@@ -82,6 +84,7 @@ async def _retry_one(
         )
         argv = build_argv(
             system_prompt=base_prompt + appendix, vault_slug=vault_slug,
+            model=model,
         )
         result = await run_claude(
             argv=argv, cwd=staging_dir, env=os.environ.copy(),
@@ -145,6 +148,7 @@ async def retry_failed(
     vault_slug: str,
     max_retries: int = 2,
     timeout_seconds: float = 900.0,
+    model: str = DEFAULT_WORKER_MODEL,
 ) -> ValidationReport:
     staging_dir = run_dir / "workers" / worker_assignment.worker_id
     base_prompt = build_worker_system_prompt(
@@ -179,7 +183,7 @@ async def retry_failed(
                 note_path, base_prompt=base_prompt, appendix=appendix,
                 staging_dir=staging_dir, assignment=worker_assignment,
                 run_id=run_dir.name, vault_slug=vault_slug,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=timeout_seconds, model=model,
             )
             aug = staging_dir / "augmented" / f"{nv.slug}.md"
             delta = staging_dir / "deltas" / f"{nv.slug}.json"
